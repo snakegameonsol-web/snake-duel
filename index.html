@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b100e">
+  <meta name="description" content="A fresh arena for head-to-head Snake.">
+  <title>Snake Duel — The arena is yours</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="game.js" defer></script>
+</head>
+<body>
+  <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="Snake Duel home"><span class="brand-mark">S</span><span>SNAKE<span class="brand-light">DUEL</span></span></a>
+      <nav class="main-nav" aria-label="Main navigation"><a class="nav-active" href="#arena">Arena</a><a href="#how-to-play">How to play</a></nav>
+      <div class="top-actions"><span class="connection"><i></i> PROTOTYPE</span><button class="avatar" aria-label="Guest profile">G</button></div>
+    </header>
+
+    <main id="top">
+      <section class="intro" id="arena">
+        <div class="intro-copy"><p class="eyebrow"><span class="eyebrow-line"></span> HEAD-TO-HEAD SNAKE</p><h1>One arena.<br><em>Two snakes.</em></h1><p class="lede">Outgrow your opponent. Keep your cool. Last snake standing takes the win.</p></div>
+        <div class="season-card"><span class="season-icon">✳</span><div><span class="eyebrow">THE FIRST ROUND</span><strong>Free play</strong><small>Cash matches arrive later</small></div></div>
+      </section>
+
+      <section class="arena-layout" aria-label="Snake Duel arena">
+        <div class="game-column">
+          <div class="matchbar"><div class="match-label"><span class="live-dot"></span><span id="modeLabel">PRACTICE ARENA</span></div><div class="match-meta"><span id="matchClock">00:00</span><span class="meta-divider"></span><span>BEST OF ONE</span></div></div>
+          <div class="board-wrap">
+            <canvas id="game" width="600" height="600" aria-label="Snake practice game board"></canvas>
+            <div class="board-overlay" id="overlay"><div class="overlay-card"><div class="overlay-symbol" id="overlaySymbol">↗</div><p class="eyebrow" id="overlayEyebrow">WARM UP FIRST</p><h2 id="overlayTitle">Ready when you are.</h2><p id="overlayCopy">Practice your turns, then jump into the arena.</p><button class="primary-button" id="startButton">Start practice <span>→</span></button></div></div>
+          </div>
+          <div class="game-footer"><div class="player-strip"><div class="player-avatar">G</div><div><span class="player-caption">YOU · PRACTICE</span><strong>Guest player</strong></div></div><div class="score-box"><span>GROWTH</span><strong id="score">00</strong></div><div class="key-hint"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>or arrows</span></div><button id="restartButton" class="icon-button" aria-label="Restart practice">↻</button></div>
+          <div class="touch-controls" aria-label="Touch controls"><button data-dir="up">↑</button><div><button data-dir="left">←</button><button data-dir="down">↓</button><button data-dir="right">→</button></div></div>
+        </div>
+
+        <aside class="side-column">
+          <article class="duel-card">
+            <div class="card-heading"><div><p class="eyebrow">CHOOSE YOUR ROUND</p><h2>Find a duel</h2></div><span class="round-icon">⚔</span></div>
+            <p class="card-copy">Two players enter. One snake survives. Choose a free match to get started.</p>
+            <div class="match-option selected"><span class="option-icon free-icon">∞</span><span class="option-info"><strong>Free duel</strong><small>Play for the win</small></span><span class="option-tag">FREE</span></div>
+            <div class="match-option disabled" aria-disabled="true"><span class="option-icon coin-icon">◈</span><span class="option-info"><strong>Cash duel</strong><small>Deposits and prizes</small></span><span class="option-tag soon-tag">LATER</span></div>
+            <button class="find-button" id="findButton">Find opponent <span>↗</span></button>
+            <p class="queue-note" id="queueNote"><span class="queue-icon">◷</span> Online matchmaking is the next build step.</p>
+          </article>
+
+          <article class="rules-card" id="how-to-play"><div class="rules-head"><p class="eyebrow">THE RULES</p><span>01 — 03</span></div><h3>Simple to learn.<br><em>Hard to outlast.</em></h3><ul><li><span>01</span><p>Collect fruit to grow longer.</p></li><li><span>02</span><p>Avoid the walls and your own tail.</p></li><li><span>03</span><p>In a duel, the last snake alive wins.</p></li></ul></article>
+          <div class="safety-note"><span>✳</span><p>This is a free-play prototype. No deposits or prizes are active.</p></div>
+        </aside>
+      </section>
+    </main>
+    <footer><span>© 2026 SNAKE DUEL</span><span>BUILT FOR THE LAST SNAKE STANDING</span></footer>
+  </div>
+</body>
+</html>
