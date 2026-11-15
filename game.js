@@ -6,6 +6,10 @@
   const overlay = document.querySelector('#overlay');
   const startButton = document.querySelector('#startButton');
   const findButton = document.querySelector('#findButton');
+  const fullscreenButton = document.querySelector('#fullscreenBtn');
+  const fullscreenLabel = document.querySelector('#fullscreenLabel');
+  const fullscreenIcon = document.querySelector('#fullscreenIcon');
+  const gameColumn = document.querySelector('.game-column');
   const queueNote = document.querySelector('#queueNote');
   const matchbar = document.querySelector('.matchbar');
   const connectionState = document.querySelector('#connectionState');
@@ -262,15 +266,121 @@
     ctx.strokeStyle = 'rgba(135,164,139,.055)'; ctx.lineWidth=1;
     for(let i=0;i<=size;i++){const p=i*cell+.5;ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,canvas.height);ctx.stroke();ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(canvas.width,p);ctx.stroke();}
     if (!snapshot) { updateScores(); return; }
-    if(snapshot.food){ctx.save();ctx.shadowColor='#d7ff98';ctx.shadowBlur=18;ctx.fillStyle='#e0ffb3';ctx.beginPath();ctx.arc(snapshot.food.x*cell+cell/2,snapshot.food.y*cell+cell/2,cell*.29,0,Math.PI*2);ctx.fill();ctx.restore();}
+    if(snapshot.food) drawApple(snapshot.food);
     snapshot.snakes?.forEach((snake,player)=>snake.body.forEach((part,index)=>{
-      ctx.fillStyle = index===0 ? colors[player] : (player===0 ? `hsl(89 72% ${52-Math.min(index,12)*1.05}%)` : `hsl(5 80% ${67-Math.min(index,12)*1.05}%)`);
-      const inset=index===0?2:3;ctx.beginPath();ctx.roundRect(part.x*cell+inset,part.y*cell+inset,cell-inset*2,cell-inset*2,5);ctx.fill();
+      if(index===0){drawSnakeHead(part,snake,colors[player]);return;}
+      ctx.fillStyle = player===0 ? `hsl(89 72% ${52-Math.min(index,12)*1.05}%)` : `hsl(5 80% ${67-Math.min(index,12)*1.05}%)`;
+      const inset=3;ctx.beginPath();ctx.roundRect(part.x*cell+inset,part.y*cell+inset,cell-inset*2,cell-inset*2,5);ctx.fill();
     }));
+  }
+
+  function drawApple(point) {
+    const cx = point.x * cell + cell / 2;
+    const cy = point.y * cell + cell / 2;
+    const scale = cell / 24;
+    ctx.save();
+    ctx.shadowColor = '#ff5261';
+    ctx.shadowBlur = 13 * scale;
+    const appleGradient = ctx.createLinearGradient(cx - 9*scale, cy - 8*scale, cx + 8*scale, cy + 9*scale);
+    appleGradient.addColorStop(0, '#ff9b8c');
+    appleGradient.addColorStop(.42, '#f34e59');
+    appleGradient.addColorStop(1, '#b91f3b');
+    ctx.fillStyle = appleGradient;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 3*scale);
+    ctx.bezierCurveTo(cx - 4*scale, cy - 10*scale, cx - 11*scale, cy - 7*scale, cx - 10*scale, cy);
+    ctx.bezierCurveTo(cx - 10*scale, cy + 7*scale, cx - 4*scale, cy + 10*scale, cx, cy + 8*scale);
+    ctx.bezierCurveTo(cx + 4*scale, cy + 10*scale, cx + 10*scale, cy + 6*scale, cx + 10*scale, cy);
+    ctx.bezierCurveTo(cx + 11*scale, cy - 7*scale, cx + 4*scale, cy - 10*scale, cx, cy - 3*scale);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#8f2635';
+    ctx.lineWidth = 1*scale;
+    ctx.stroke();
+    ctx.strokeStyle = '#714425';
+    ctx.lineWidth = 2*scale;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 6*scale);
+    ctx.quadraticCurveTo(cx + 1*scale, cy - 11*scale, cx + 4*scale, cy - 11*scale);
+    ctx.stroke();
+    ctx.fillStyle = '#8ddc72';
+    ctx.beginPath();
+    ctx.ellipse(cx + 5*scale, cy - 9*scale, 4*scale, 2*scale, -.45, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,239,205,.75)';
+    ctx.beginPath();
+    ctx.ellipse(cx - 5*scale, cy - 2*scale, 1.4*scale, 2.5*scale, -.25, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawSnakeHead(part, snake, color) {
+    const x = part.x * cell;
+    const y = part.y * cell;
+    const direction = snake.direction || {x:1,y:0};
+    const perpendicular = {x:-direction.y,y:direction.x};
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.roundRect(x+2,y+2,cell-4,cell-4,7);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    for (const side of [-1,1]) {
+      const eyeX = x + cell/2 + direction.x*4 + perpendicular.x*4*side;
+      const eyeY = y + cell/2 + direction.y*4 + perpendicular.y*4*side;
+      ctx.fillStyle = '#f7fff0';
+      ctx.beginPath();
+      ctx.arc(eyeX,eyeY,2.8,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#172019';
+      ctx.beginPath();
+      ctx.arc(eyeX+direction.x,eyeY+direction.y,1.35,0,Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function updateFullscreenButton() {
+    const nativeFullscreen = document.fullscreenElement === gameColumn || document.webkitFullscreenElement === gameColumn;
+    const expanded = gameColumn.classList.contains('is-expanded');
+    const active = nativeFullscreen || expanded;
+    fullscreenLabel.textContent = active ? 'Exit full screen' : 'Full screen';
+    fullscreenIcon.textContent = active ? '⤢' : '⛶';
+    fullscreenButton.setAttribute('aria-label', active ? 'Exit full screen' : 'Enter full screen');
+    fullscreenButton.title = active ? 'Exit full screen' : 'Use full screen to keep the board in view';
+  }
+
+  async function toggleFullscreen() {
+    const nativeFullscreen = document.fullscreenElement === gameColumn || document.webkitFullscreenElement === gameColumn;
+    if (nativeFullscreen) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) await exit.call(document);
+      return;
+    }
+    if (gameColumn.classList.contains('is-expanded')) {
+      gameColumn.classList.remove('is-expanded');
+      updateFullscreenButton();
+      return;
+    }
+    const request = gameColumn.requestFullscreen || gameColumn.webkitRequestFullscreen;
+    if (request) {
+      try { await request.call(gameColumn); }
+      catch { gameColumn.classList.add('is-expanded'); }
+    } else {
+      gameColumn.classList.add('is-expanded');
+    }
+    updateFullscreenButton();
   }
 
   findButton.addEventListener('click', enterQueue);
   startButton.addEventListener('click', enterQueue);
+  fullscreenButton.addEventListener('click', toggleFullscreen);
+  document.addEventListener('fullscreenchange', updateFullscreenButton);
+  document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
   document.querySelector('#restartButton').addEventListener('click', () => {
     if (phase === 'queued') { send({type:'cancel_queue'}); return; }
     if (phase === 'playing' || phase === 'countdown') { intentionallyLeaving=true; send({type:'leave_match'}); phase='idle'; snapshot=null; clearInterval(clockTimer); }
@@ -281,6 +391,7 @@
   });
 
   document.addEventListener('keydown', event => {
+    if(event.key==='Escape'&&gameColumn.classList.contains('is-expanded')){gameColumn.classList.remove('is-expanded');updateFullscreenButton();return;}
     const keys = {ArrowUp:'up',w:'up',W:'up',ArrowDown:'down',s:'down',S:'down',ArrowLeft:'left',a:'left',A:'left',ArrowRight:'right',d:'right',D:'right'};
     const direction = keys[event.key];
     if(direction){event.preventDefault();sendTurn(direction);}
@@ -288,6 +399,6 @@
   document.querySelectorAll('[data-dir]').forEach(button => button.addEventListener('pointerdown',event=>{event.preventDefault();sendTurn(button.dataset.dir);}));
   window.addEventListener('beforeunload',()=>{shouldConnect=false;send({type:'leave_match'});socket?.close();});
   setInterval(()=>send({type:'ping'}),20000);
-  draw(); updateButtons(); connect();
+  draw(); updateButtons(); updateFullscreenButton(); connect();
 })();
 
