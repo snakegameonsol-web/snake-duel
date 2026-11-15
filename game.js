@@ -30,6 +30,7 @@
   let snapshot = null;
   let elapsedSeconds = 0;
   let clockTimer = null;
+  let seatColorCopy = '';
 
   function getPlayerId() {
     try {
@@ -132,20 +133,35 @@
         break;
       case 'match_found':
         phase = 'countdown'; playerIndex = message.playerIndex;
-        document.querySelector('#selfName').textContent = message.players[playerIndex].name;
-        document.querySelector('#selfAvatar').textContent = message.players[playerIndex].name.slice(0,1).toUpperCase();
-        document.querySelector('#opponentName').textContent = message.players[1-playerIndex].name.toUpperCase();
-        setStatus(`Matched with ${message.players[1-playerIndex].name}. Get ready!`);
+        const selfName = message.players[playerIndex].name;
+        const opponentName = message.players[1-playerIndex].name;
+        const selfColor = colors[playerIndex];
+        const opponentColor = colors[1-playerIndex];
+        const colorNames = ['lime green','coral pink'];
+        document.querySelector('#selfName').textContent = selfName;
+        document.querySelector('#selfCaption').textContent = 'YOUR SNAKE';
+        document.querySelector('#selfCaption').style.setProperty('--snake-color',selfColor);
+        document.querySelector('#selfCaption').classList.add('color-known');
+        document.querySelector('#selfAvatar').textContent = selfName.slice(0,1).toUpperCase();
+        document.querySelector('#selfAvatar').style.color = selfColor;
+        document.querySelector('#selfAvatar').style.borderColor = selfColor;
+        document.querySelector('#opponentName').textContent = opponentName.toUpperCase();
+        document.querySelector('#opponentName').style.setProperty('--snake-color',opponentColor);
+        document.querySelector('#opponentName').classList.add('color-known');
+        scoreEls[0].style.color = selfColor;
+        scoreEls[1].style.color = opponentColor;
+        seatColorCopy = `Your snake is ${colorNames[playerIndex]}; ${opponentName}'s snake is ${colorNames[1-playerIndex]}.`;
+        setStatus(`Matched with ${opponentName}. Get ready!`);
         updateButtons();
         document.querySelector('#modeLabel').textContent = 'OPPONENT FOUND';
         matchbar.classList.add('is-countdown');
-        showOverlay('OPPONENT FOUND','Get ready!','Your duel begins in a moment.','✳','Starting…');
+        showOverlay('OPPONENT FOUND','Get ready!',seatColorCopy,'✳','Starting…');
         startButton.disabled = true;
         break;
       case 'countdown':
         phase = 'countdown';
         document.querySelector('#overlayTitle').textContent = String(message.seconds);
-        document.querySelector('#overlayCopy').textContent = 'Take your starting position.';
+        document.querySelector('#overlayCopy').textContent = seatColorCopy || 'Take your starting position.';
         break;
       case 'match_start':
         phase = 'playing'; snapshot = message.state; elapsedSeconds = 0;

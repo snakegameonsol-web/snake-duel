@@ -12,4 +12,22 @@
 .overlay-card>p:not(.eyebrow){font-size:12px;max-width:270px;margin-bottom:22px}
 .overlay-card .primary-button{height:47px;padding:0 21px;font-size:12px}
 @media(max-width:560px){.overlay-card{width:92%;padding:27px 22px;border-radius:16px}.overlay-symbol{width:43px;height:43px;margin-bottom:17px}.overlay-card h2{font-size:22px}.overlay-card>p:not(.eyebrow){font-size:11px;margin-bottom:18px}}
+/* Snake color key: the game client sets the correct color for each seat. */
+#selfCaption::before,#opponentName::before{content:"";display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%;vertical-align:1px;background:var(--snake-color,#d2ff87);box-shadow:0 0 9px var(--snake-color,#d2ff87);opacity:0}
+#selfCaption.color-known::before,#opponentName.color-known::before{opacity:1}
+#selfCaption,#opponentName{color:#d4ddd3}
+/* Use desktop width more efficiently; mobile and tablet rules stay unchanged. */
+@media(min-width:1024px){
+  .app-shell{width:min(1800px,calc(100% - 48px))}
+  .intro{padding:38px 0 24px}
+  .arena-layout{grid-template-columns:minmax(0,1fr) 320px;gap:24px}
+  .game-column{min-width:0}
+  .side-column{width:100%;max-width:320px;justify-self:end}
+  .board-wrap{width:min(100%,920px);margin-left:0;margin-right:0}
+  .overlay-card{width:min(72%,560px);padding:46px 50px;border-radius:21px}
+  .overlay-symbol{width:54px;height:54px;margin-bottom:22px}
+  .overlay-card h2{font-size:clamp(29px,2.7vw,37px);margin:14px 0 11px}
+  .overlay-card>p:not(.eyebrow){font-size:14px;max-width:330px;margin-bottom:26px}
+  .overlay-card .primary-button{height:52px;padding:0 24px;font-size:13px}
+}
 
