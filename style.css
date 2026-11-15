@@ -116,4 +116,6 @@
   .player-caption,.opponent-score span,.score-box span{font-size:10px!important}
   .match-meta{font-size:9px;gap:5px}
 }
+/* The desktop-only fullscreen hint must never appear on phones or tablets. */
+@media(max-width:1023px){.fullscreen-hint{display:none!important}}
 
