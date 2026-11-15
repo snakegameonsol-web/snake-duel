@@ -154,7 +154,7 @@
         setStatus('Duel live. Collect fruit and stay alive.');
         clearInterval(clockTimer);
         clockTimer = setInterval(() => { elapsedSeconds++; updateClock(); },1000);
-        draw(); updateButtons();
+        draw(); updateScores(); updateClock(); updateButtons();
         break;
       case 'state':
         snapshot = message.state; phase = 'playing'; draw(); updateScores(); updateClock();
@@ -225,6 +225,15 @@
     if (!snapshot?.scores) return;
     scoreEls[0].textContent = String(snapshot.scores[playerIndex] ?? 0).padStart(2,'0');
     scoreEls[1].textContent = String(snapshot.scores[1-playerIndex] ?? 0).padStart(2,'0');
+    updatePace();
+  }
+
+  function updatePace() {
+    const speeds = snapshot?.speedMultipliers;
+    if (!Array.isArray(speeds)) return;
+    const selfSpeed = Number(speeds[playerIndex] || 1).toFixed(1);
+    const opponentSpeed = Number(speeds[1-playerIndex] || 1).toFixed(1);
+    document.querySelector('#matchPace').textContent = `PACE ${selfSpeed}× / ${opponentSpeed}×`;
   }
 
   function updateClock() {
@@ -265,3 +274,4 @@
   setInterval(()=>send({type:'ping'}),20000);
   draw(); updateButtons(); connect();
 })();
+

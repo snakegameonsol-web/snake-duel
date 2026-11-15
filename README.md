@@ -13,7 +13,7 @@ A free, real-time, head-to-head Snake prototype. This version has no deposits, p
 ## Match rules in this prototype
 
 - Both snakes share one 25 by 25 board and one fruit.
-- Players move at the same server tick rate.
+- Each snake speeds up independently as it grows: every two fruit reduce its move interval by 10 ms, from 140 ms to a 75 ms minimum.
 - A wall, your own body, or the opponent's body is fatal.
 - If both snakes crash on the same tick, the match is a draw.
 - If a player disconnects or leaves during a match, the other player wins by forfeit.
@@ -34,3 +34,4 @@ The Render service also exposes `/health` for a basic health check. Only the Git
 Start the server from `server/` with Node.js 20 or later: `npm install`, then `npm start`. Set `window.SNAKE_DUEL_SERVER_URL` in `config.js` to `ws://localhost:10000/ws`, and serve the static files from a local web server. The browser client defaults to that address on localhost.
 
 The game is intentionally an early free-play MVP. Before cash matches, add authenticated accounts, persistent match records, abuse controls, and review the legal and payment requirements for each market.
+

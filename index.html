@@ -30,7 +30,7 @@
 
       <section class="arena-layout" aria-label="Snake Duel arena">
         <div class="game-column">
-          <div class="matchbar"><div class="match-label"><span class="live-dot"></span><span id="modeLabel">FREE DUEL · IDLE</span></div><div class="match-meta"><span id="matchClock">00:00</span><span class="meta-divider"></span><span>BEST OF ONE</span></div></div>
+          <div class="matchbar"><div class="match-label"><span class="live-dot"></span><span id="modeLabel">FREE DUEL · IDLE</span></div><div class="match-meta"><span id="matchClock">00:00</span><span class="meta-divider"></span><span id="matchPace" aria-label="Player speeds">SPEED 1.0× · 1.0×</span></div></div>
           <div class="board-wrap">
             <canvas id="game" width="600" height="600" aria-label="Live Snake duel board"></canvas>
             <div class="board-overlay" id="overlay"><div class="overlay-card"><div class="overlay-symbol" id="overlaySymbol">⚔</div><p class="eyebrow" id="overlayEyebrow">FREE MATCHMAKING</p><h2 id="overlayTitle">Find your opponent.</h2><p id="overlayCopy">Join the queue and get matched with another player online.</p><button class="primary-button" id="startButton">Find a free duel <span>→</span></button></div></div>
@@ -49,7 +49,7 @@
             <p class="queue-note" id="queueNote" aria-live="polite"><span class="queue-icon">◷</span> Connect to the game server to join.</p>
           </article>
 
-          <article class="rules-card" id="how-to-play"><div class="rules-head"><p class="eyebrow">THE RULES</p><span>01 — 03</span></div><h3>Simple to learn.<br><em>Hard to outlast.</em></h3><ul><li><span>01</span><p>Collect the shared fruit to grow.</p></li><li><span>02</span><p>Wall, your tail, or the other snake means out.</p></li><li><span>03</span><p>Last snake alive wins. Same-tick crashes draw.</p></li></ul></article>
+          <article class="rules-card" id="how-to-play"><div class="rules-head"><p class="eyebrow">THE RULES</p><span>01 — 03</span></div><h3>Simple to learn.<br><em>Hard to outlast.</em></h3><ul><li><span>01</span><p>Collect the shared fruit to grow.</p></li><li><span>02</span><p>Grow to speed up; your pace rises with your snake.</p></li><li><span>03</span><p>Walls and either snake's body mean out. Last one wins.</p></li></ul></article>
           <div class="safety-note"><span>✳</span><p>Free matches only. No deposits or cash prizes.</p></div>
         </aside>
       </section>
@@ -58,3 +58,4 @@
   </div>
 </body>
 </html>
+

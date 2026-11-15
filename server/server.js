@@ -6,7 +6,9 @@ const { WebSocket, WebSocketServer } = require('ws');
 
 const PORT = Number(process.env.PORT) || 10000;
 const BOARD = 25;
-const TICK_MS = 140;
+const HEARTBEAT_MS = 25;
+const BASE_MOVE_MS = 140;
+const MIN_MOVE_MS = 75;
 const COUNTDOWN_SECONDS = 3;
 const MAX_CLIENTS = 500;
 const MAX_MESSAGE_BYTES = 1024;
@@ -107,7 +109,11 @@ function queueClient(client, name) {
 function makeSnake(x, y, direction, tailDirection) {
   const body = [];
   for (let segment = 0; segment < 4; segment++) body.push({ x: x + tailDirection.x * segment, y: y + tailDirection.y * segment });
-  return { body, direction, nextDirection: direction, alive: true };
+  return { body, direction, nextDirection: direction, alive: true, turnLocked: false, lastMovedAt: 0 };
+}
+
+function moveInterval(score) {
+  return Math.max(MIN_MOVE_MS, BASE_MOVE_MS - Math.floor(score / 2) * 10);
 }
 
 function makeFood(snakes) {
@@ -121,6 +127,7 @@ function publicState(match) {
   return {
     snakes: match.snakes.map(snake => ({ body: snake.body, direction: snake.direction, alive: snake.alive })),
     scores: match.scores,
+    speedMultipliers: match.scores.map(score => Math.round((BASE_MOVE_MS / moveInterval(score)) * 10) / 10),
     food: match.food,
     elapsedSeconds: Math.floor((Date.now() - match.startedAt) / 1000)
   };
@@ -134,7 +141,7 @@ function createMatch(first, second) {
       makeSnake(5, 7, DIRECTIONS.right, DIRECTIONS.left),
       makeSnake(19, 17, DIRECTIONS.left, DIRECTIONS.right)
     ],
-    scores: [0, 0], food: null, startedAt: 0, tickTimer: null, tickNumber: 0
+    scores: [0, 0], food: null, startedAt: 0, tickTimer: null
   };
   match.food = makeFood(match.snakes);
   matches.set(match.id, match);
@@ -164,37 +171,49 @@ function createMatch(first, second) {
 function startMatch(match) {
   if (match.finished) return;
   match.startedAt = Date.now();
+  match.snakes.forEach(snake => { snake.lastMovedAt = match.startedAt; });
   const state = publicState(match);
   match.players.forEach(player => send(player, { type: 'match_start', state }));
-  match.tickTimer = setInterval(() => tickMatch(match), TICK_MS);
+  scheduleNextTick(match);
+}
+
+function scheduleNextTick(match) {
+  if (match.finished) return;
+  match.tickTimer = setTimeout(() => {
+    tickMatch(match);
+    scheduleNextTick(match);
+  }, HEARTBEAT_MS);
 }
 
 function isSame(a, b) { return a.x === b.x && a.y === b.y; }
 
 function tickMatch(match) {
   if (match.finished) return;
-  match.tickNumber += 1;
-  const nextHeads = match.snakes.map(snake => ({
-    x: snake.body[0].x + snake.nextDirection.x,
-    y: snake.body[0].y + snake.nextDirection.y
-  }));
-  const eating = nextHeads.map(head => Boolean(match.food && isSame(head, match.food)));
+  const now = Date.now();
+  const moving = match.snakes.map((snake, index) => now - snake.lastMovedAt >= moveInterval(match.scores[index]));
+  if (!moving.some(Boolean)) return;
+  const nextHeads = match.snakes.map((snake, index) => moving[index]
+    ? { x: snake.body[0].x + snake.nextDirection.x, y: snake.body[0].y + snake.nextDirection.y }
+    : snake.body[0]);
+  const eating = nextHeads.map((head, index) => moving[index] && Boolean(match.food && isSame(head, match.food)));
   const dead = [false, false];
 
   match.snakes.forEach((snake, index) => {
+    if (!moving[index]) return;
     const head = nextHeads[index];
     const ownBody = eating[index] ? snake.body : snake.body.slice(0, -1);
     if (head.x < 0 || head.y < 0 || head.x >= BOARD || head.y >= BOARD || ownBody.some(point => isSame(point, head))) dead[index] = true;
   });
 
   for (let index = 0; index < 2; index++) {
+    if (!moving[index]) continue;
     const otherIndex = 1 - index;
     const other = match.snakes[otherIndex];
-    const otherBody = eating[otherIndex] ? other.body : other.body.slice(0, -1);
+    const otherBody = moving[otherIndex] && !eating[otherIndex] ? other.body.slice(0, -1) : other.body;
     if (otherBody.some(point => isSame(point, nextHeads[index]))) dead[index] = true;
   }
-  if (isSame(nextHeads[0], nextHeads[1])) { dead[0] = true; dead[1] = true; }
-  if (isSame(nextHeads[0], match.snakes[1].body[0]) && isSame(nextHeads[1], match.snakes[0].body[0])) { dead[0] = true; dead[1] = true; }
+  if (moving[0] && moving[1] && isSame(nextHeads[0], nextHeads[1])) { dead[0] = true; dead[1] = true; }
+  if (moving[0] && moving[1] && isSame(nextHeads[0], match.snakes[1].body[0]) && isSame(nextHeads[1], match.snakes[0].body[0])) { dead[0] = true; dead[1] = true; }
 
   if (dead[0] || dead[1]) {
     match.snakes.forEach((snake, index) => { snake.alive = !dead[index]; });
@@ -203,10 +222,13 @@ function tickMatch(match) {
   }
 
   match.snakes.forEach((snake, index) => {
+    if (!moving[index]) return;
     snake.direction = snake.nextDirection;
     snake.body.unshift(nextHeads[index]);
     if (eating[index]) match.scores[index] += 1;
     else snake.body.pop();
+    snake.lastMovedAt = now;
+    snake.turnLocked = false;
   });
   if (eating.some(Boolean)) match.food = makeFood(match.snakes);
   const state = publicState(match);
@@ -217,7 +239,7 @@ function tickMatch(match) {
 function finishMatch(match, winner) {
   if (match.finished) return;
   match.finished = true;
-  clearInterval(match.tickTimer);
+  clearTimeout(match.tickTimer);
   for (const timer of match.timers) clearInterval(timer);
   matches.delete(match.id);
   const state = publicState(match);
@@ -233,7 +255,7 @@ function leaveMatch(client, message = 'opponent_left') {
   if (!match || match.finished) return;
   const winner = 1 - client.playerIndex;
   match.finished = true;
-  clearInterval(match.tickTimer);
+  clearTimeout(match.tickTimer);
   for (const timer of match.timers) clearInterval(timer);
   matches.delete(match.id);
   const opponent = match.players[winner];
@@ -262,10 +284,10 @@ function handleMessage(client, payload) {
     const next = DIRECTIONS[message.direction];
     const snake = client.match?.snakes[client.playerIndex];
     if (!next || !snake || client.match.finished || !client.match.startedAt) return;
-    if (client.lastTurnTick === client.match.tickNumber) return;
-    if (next.x === -snake.direction.x && next.y === -snake.direction.y) return;
-    client.lastTurnTick = client.match.tickNumber;
+    if (snake.turnLocked) return;
+    if (next.x === -snake.nextDirection.x && next.y === -snake.nextDirection.y) return;
     snake.nextDirection = next;
+    snake.turnLocked = true;
   } else if (message.type === 'leave_match') {
     removeFromQueue(client);
     leaveMatch(client);
@@ -300,7 +322,7 @@ server.listen(PORT, '0.0.0.0', () => console.log(`Snake Duel match server listen
 function shutdown() {
   clearInterval(heartbeat);
   for (const match of matches.values()) {
-    clearInterval(match.tickTimer);
+    clearTimeout(match.tickTimer);
     for (const timer of match.timers) clearInterval(timer);
   }
   wss.clients.forEach(client => client.close(1001, 'Server restarting'));
