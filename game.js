@@ -1,61 +1,267 @@
 (() => {
   'use strict';
+
   const canvas = document.querySelector('#game');
   const ctx = canvas.getContext('2d');
   const overlay = document.querySelector('#overlay');
-  const scoreEl = document.querySelector('#score');
-  const clockEl = document.querySelector('#matchClock');
-  const note = document.querySelector('#queueNote');
+  const startButton = document.querySelector('#startButton');
+  const findButton = document.querySelector('#findButton');
+  const queueNote = document.querySelector('#queueNote');
+  const matchbar = document.querySelector('.matchbar');
+  const connectionState = document.querySelector('#connectionState');
+  const scoreEls = [document.querySelector('#score'), document.querySelector('#opponentScore')];
   const size = 25;
   const cell = canvas.width / size;
-  const dirs = { up:{x:0,y:-1}, down:{x:0,y:1}, left:{x:-1,y:0}, right:{x:1,y:0} };
-  let snake, direction, nextDirection, food, score = 0, timer = null, startedAt = 0, clockTimer = null, running = false;
+  const SERVER_URL = window.SNAKE_DUEL_SERVER_URL || (location.hostname === 'localhost' ? 'ws://localhost:10000/ws' : '');
+  const directions = { up:{x:0,y:-1}, down:{x:0,y:1}, left:{x:-1,y:0}, right:{x:1,y:0} };
+  const reverse = new Map([[directions.up,directions.down],[directions.down,directions.up],[directions.left,directions.right],[directions.right,directions.left]]);
+  const colors = ['#d2ff87','#ff8c86'];
 
-  function reset() {
-    snake = [{x:12,y:12},{x:11,y:12},{x:10,y:12},{x:9,y:12}];
-    direction = dirs.right; nextDirection = dirs.right; score = 0;
-    scoreEl.textContent = '00'; clockEl.textContent = '00:00'; food = makeFood(); draw();
+  let socket = null;
+  let reconnectTimer = null;
+  let reconnectDelay = 1000;
+  let shouldConnect = true;
+  let playerId = getPlayerId();
+  let playerName = getPlayerName();
+  let playerIndex = 0;
+  let phase = 'idle';
+  let wantsQueue = false;
+  let intentionallyLeaving = false;
+  let snapshot = null;
+  let elapsedSeconds = 0;
+  let clockTimer = null;
+
+  function getPlayerId() {
+    try {
+      let id = sessionStorage.getItem('snakeDuelGuestId');
+      if (!id) { id = crypto.randomUUID(); sessionStorage.setItem('snakeDuelGuestId', id); }
+      return id;
+    } catch { return crypto.randomUUID(); }
   }
-  function makeFood() {
-    const free = [];
-    for (let y=0;y<size;y++) for (let x=0;x<size;x++) if (!snake.some(p=>p.x===x&&p.y===y)) free.push({x,y});
-    return free[Math.floor(Math.random()*free.length)];
+
+  function getPlayerName() {
+    const names = ['LimeFox','MintDash','QuickTail','NightOwl','GreenComet','SwiftSnake'];
+    return `${names[Math.floor(Math.random()*names.length)]}-${Math.floor(10+Math.random()*90)}`;
   }
-  function start() {
-    if (running) return;
-    reset(); running = true; startedAt = Date.now(); overlay.classList.add('hidden');
-    document.querySelector('#overlaySymbol').textContent = '↻';
-    document.querySelector('#overlayEyebrow').textContent = 'PRACTICE RUN';
-    document.querySelector('#overlayTitle').textContent = 'Run it back.';
-    document.querySelector('#overlayCopy').textContent = `You grew to ${score} points. Ready for another round?`;
-    document.querySelector('#startButton').innerHTML = 'Play again <span>→</span>';
-    clockTimer = setInterval(()=>{const seconds=Math.floor((Date.now()-startedAt)/1000);clockEl.textContent=`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`},250);
-    tick();
+
+  function setConnection(kind, text) {
+    connectionState.classList.remove('is-online','is-offline','is-searching');
+    connectionState.classList.add(kind === 'online' ? 'is-online' : kind === 'searching' ? 'is-searching' : 'is-offline');
+    connectionState.lastChild.textContent = ` ${text}`;
   }
-  function tick() {
-    if (!running) return;
-    direction = nextDirection;
-    const head = {x:snake[0].x+direction.x,y:snake[0].y+direction.y};
-    const eating = head.x===food.x&&head.y===food.y;
-    const body = eating ? snake : snake.slice(0,-1);
-    if(head.x<0||head.y<0||head.x>=size||head.y>=size||body.some(p=>p.x===head.x&&p.y===head.y)){finish();return;}
-    snake.unshift(head);
-    if(eating){score++;scoreEl.textContent=String(score).padStart(2,'0');food=makeFood();}else snake.pop();
-    draw(); timer=setTimeout(tick,Math.max(75,132-Math.floor(score/5)*5));
+
+  function setStatus(message, searching = false) {
+    queueNote.classList.toggle('is-searching', searching);
+    queueNote.innerHTML = `<span class="queue-icon">${searching ? '◷' : '✳'}</span> ${message}`;
   }
-  function finish(){running=false;clearTimeout(timer);clearInterval(clockTimer);document.querySelector('#overlayCopy').textContent=`You grew to ${score} points. Ready for another round?`;overlay.classList.remove('hidden');draw();}
-  function setDirection(name){const d=dirs[name];if(!d||d.x===-direction.x&&d.y===-direction.y)return;nextDirection=d;}
-  function draw(){
-    ctx.fillStyle='#0b110e';ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.strokeStyle='rgba(135,164,139,.055)';ctx.lineWidth=1;
+
+  function showOverlay(kicker, title, copy, symbol = '⚔', buttonText = 'Find a free duel') {
+    document.querySelector('#overlaySymbol').textContent = symbol;
+    document.querySelector('#overlayEyebrow').textContent = kicker;
+    document.querySelector('#overlayTitle').textContent = title;
+    document.querySelector('#overlayCopy').textContent = copy;
+    startButton.innerHTML = `${buttonText} <span>→</span>`;
+    overlay.classList.remove('hidden');
+  }
+
+  function send(data) {
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(data));
+  }
+
+  function connect() {
+    if (!SERVER_URL) {
+      setConnection('offline','SERVER NOT SET');
+      setStatus('Game server URL is not set yet.');
+      return;
+    }
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+    setConnection('searching','CONNECTING');
+    try { socket = new WebSocket(SERVER_URL); }
+    catch { setConnection('offline','OFFLINE'); scheduleReconnect(); return; }
+
+    socket.addEventListener('open', () => {
+      reconnectDelay = 1000;
+      setConnection('online','ONLINE');
+      send({ type:'hello', playerId, name:playerName });
+      setStatus('Connected. Find an opponent to enter the queue.');
+      if (wantsQueue) { wantsQueue = false; send({type:'join_queue', name:playerName}); }
+    });
+    socket.addEventListener('message', event => {
+      let message;
+      try { message = JSON.parse(event.data); } catch { return; }
+      handleMessage(message);
+    });
+    socket.addEventListener('error', () => setConnection('offline','CONNECTION ERROR'));
+    socket.addEventListener('close', () => {
+      socket = null;
+      clearInterval(clockTimer);
+      const wasInMatch = phase === 'playing' || phase === 'countdown';
+      phase = 'idle'; snapshot = null; updateButtons();
+      setConnection('offline','OFFLINE');
+      if (wasInMatch) showOverlay('CONNECTION LOST','Match ended.','The connection closed. Find another free duel when you are ready.','↻');
+      setStatus('Trying to reconnect…', true);
+      scheduleReconnect();
+    });
+  }
+
+  function scheduleReconnect() {
+    if (!shouldConnect || reconnectTimer || !SERVER_URL) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+      reconnectDelay = Math.min(reconnectDelay * 1.8, 10000);
+    }, reconnectDelay);
+  }
+
+  function handleMessage(message) {
+    switch (message.type) {
+      case 'welcome':
+        if (message.playerId) playerId = message.playerId;
+        break;
+      case 'queue':
+        phase = 'queued'; updateButtons(); setConnection('searching','FINDING MATCH');
+        overlay.classList.add('hidden');
+        setStatus('Looking for another player… You can cancel any time.', true);
+        document.querySelector('#modeLabel').textContent = 'FREE DUEL · QUEUE';
+        break;
+      case 'queue_cancelled':
+        phase = 'idle'; updateButtons(); setConnection('online','ONLINE');
+        setStatus('Search cancelled. Find an opponent when ready.');
+        document.querySelector('#modeLabel').textContent = 'FREE DUEL · IDLE';
+        showOverlay('FREE MATCHMAKING','Find your opponent.','Join the queue and get matched with another player online.');
+        break;
+      case 'match_found':
+        phase = 'countdown'; playerIndex = message.playerIndex;
+        document.querySelector('#selfName').textContent = message.players[playerIndex].name;
+        document.querySelector('#selfAvatar').textContent = message.players[playerIndex].name.slice(0,1).toUpperCase();
+        document.querySelector('#opponentName').textContent = message.players[1-playerIndex].name.toUpperCase();
+        setStatus(`Matched with ${message.players[1-playerIndex].name}. Get ready!`);
+        updateButtons();
+        document.querySelector('#modeLabel').textContent = 'OPPONENT FOUND';
+        matchbar.classList.add('is-countdown');
+        showOverlay('OPPONENT FOUND','Get ready!','Your duel begins in a moment.','✳','Starting…');
+        startButton.disabled = true;
+        break;
+      case 'countdown':
+        phase = 'countdown';
+        document.querySelector('#overlayTitle').textContent = String(message.seconds);
+        document.querySelector('#overlayCopy').textContent = 'Take your starting position.';
+        break;
+      case 'match_start':
+        phase = 'playing'; snapshot = message.state; elapsedSeconds = 0;
+        overlay.classList.add('hidden'); matchbar.classList.remove('is-countdown'); matchbar.classList.add('is-live');
+        document.querySelector('#modeLabel').textContent = 'LIVE FREE DUEL';
+        setStatus('Duel live. Collect fruit and stay alive.');
+        clearInterval(clockTimer);
+        clockTimer = setInterval(() => { elapsedSeconds++; updateClock(); },1000);
+        draw(); updateButtons();
+        break;
+      case 'state':
+        snapshot = message.state; phase = 'playing'; draw(); updateScores(); updateClock();
+        break;
+      case 'match_over':
+        if (intentionallyLeaving) { intentionallyLeaving = false; break; }
+        phase = 'finished'; snapshot = message.state || snapshot;
+        clearInterval(clockTimer); draw(); updateScores(); matchbar.classList.remove('is-live','is-countdown');
+        document.querySelector('#modeLabel').textContent = 'DUEL COMPLETE';
+        updateButtons();
+        if (message.winner === null) {
+          showOverlay('DRAW','Both snakes are out.','That was close. Queue up for another free duel.','↻','Play again');
+          setStatus('Draw match. Both snakes crashed in the same tick.');
+        } else if (message.winner === playerIndex) {
+          showOverlay('YOU WIN','Last snake standing.','Nice run. Find another opponent for a rematch.','✳','Play again');
+          setStatus('Victory. Your opponent is out.');
+        } else {
+          showOverlay('MATCH OVER','Your opponent wins.','Queue again when you are ready for another duel.','↻','Play again');
+          setStatus('Defeat. Find another opponent for a rematch.');
+        }
+        break;
+      case 'opponent_left':
+        phase = 'finished'; clearInterval(clockTimer); updateButtons();
+        showOverlay('OPPONENT LEFT','You win by forfeit.','Your opponent disconnected. Find another free duel.','✳','Play again');
+        setStatus('Opponent disconnected. Victory awarded by forfeit.');
+        document.querySelector('#modeLabel').textContent = 'DUEL COMPLETE';
+        break;
+      case 'error':
+        setStatus(message.message || 'Something went wrong.');
+        break;
+      case 'pong':
+        break;
+    }
+  }
+
+  function updateButtons() {
+    const isQueued = phase === 'queued';
+    const inMatch = phase === 'countdown' || phase === 'playing';
+    findButton.disabled = inMatch;
+    findButton.innerHTML = isQueued ? 'Cancel search <span>×</span>' : 'Find opponent <span>↗</span>';
+    startButton.disabled = phase === 'countdown' || phase === 'playing';
+  }
+
+  function enterQueue() {
+    if (phase === 'queued') { send({type:'cancel_queue'}); return; }
+    if (phase === 'finished') { phase = 'idle'; snapshot = null; matchbar.classList.remove('is-live','is-countdown'); }
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      connect();
+      if (SERVER_URL) wantsQueue = true;
+      setStatus(SERVER_URL ? 'Connecting to the match server…' : 'Set the game server URL in config.js first.');
+      return;
+    }
+    send({type:'join_queue', name:playerName});
+    setConnection('searching','FINDING MATCH');
+    setStatus('Looking for another player… You can cancel any time.', true);
+    findButton.disabled = true;
+  }
+
+  function sendTurn(name) {
+    if (phase !== 'playing' || !directions[name]) return;
+    const dir = directions[name];
+    const current = snapshot?.snakes?.[playerIndex]?.direction;
+    if (current && dir.x === -current.x && dir.y === -current.y) return;
+    send({type:'turn', direction:name});
+  }
+
+  function updateScores() {
+    if (!snapshot?.scores) return;
+    scoreEls[0].textContent = String(snapshot.scores[playerIndex] ?? 0).padStart(2,'0');
+    scoreEls[1].textContent = String(snapshot.scores[1-playerIndex] ?? 0).padStart(2,'0');
+  }
+
+  function updateClock() {
+    if (snapshot?.elapsedSeconds !== undefined) elapsedSeconds = snapshot.elapsedSeconds;
+    document.querySelector('#matchClock').textContent = `${String(Math.floor(elapsedSeconds/60)).padStart(2,'0')}:${String(elapsedSeconds%60).padStart(2,'0')}`;
+  }
+
+  function draw() {
+    ctx.fillStyle = '#0b110e'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.strokeStyle = 'rgba(135,164,139,.055)'; ctx.lineWidth=1;
     for(let i=0;i<=size;i++){const p=i*cell+.5;ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,canvas.height);ctx.stroke();ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(canvas.width,p);ctx.stroke();}
-    if(food){ctx.save();ctx.shadowColor='#c6fa72';ctx.shadowBlur=18;ctx.fillStyle='#d2ff87';ctx.beginPath();ctx.arc(food.x*cell+cell/2,food.y*cell+cell/2,cell*.29,0,Math.PI*2);ctx.fill();ctx.restore();}
-    snake?.forEach((part,i)=>{ctx.fillStyle=i===0?'#d7ff98':`hsl(102 56% ${49-Math.min(i,12)*1.15}%)`;const inset=i===0?2:3;ctx.beginPath();ctx.roundRect(part.x*cell+inset,part.y*cell+inset,cell-inset*2,cell-inset*2,5);ctx.fill();});
+    if (!snapshot) { updateScores(); return; }
+    if(snapshot.food){ctx.save();ctx.shadowColor='#d7ff98';ctx.shadowBlur=18;ctx.fillStyle='#e0ffb3';ctx.beginPath();ctx.arc(snapshot.food.x*cell+cell/2,snapshot.food.y*cell+cell/2,cell*.29,0,Math.PI*2);ctx.fill();ctx.restore();}
+    snapshot.snakes?.forEach((snake,player)=>snake.body.forEach((part,index)=>{
+      ctx.fillStyle = index===0 ? colors[player] : (player===0 ? `hsl(89 72% ${52-Math.min(index,12)*1.05}%)` : `hsl(5 80% ${67-Math.min(index,12)*1.05}%)`);
+      const inset=index===0?2:3;ctx.beginPath();ctx.roundRect(part.x*cell+inset,part.y*cell+inset,cell-inset*2,cell-inset*2,5);ctx.fill();
+    }));
   }
-  document.querySelector('#startButton').addEventListener('click',start);
-  document.querySelector('#restartButton').addEventListener('click',()=>{if(running){finish();document.querySelector('#overlayTitle').textContent='Practice paused.';}else start();});
-  document.querySelector('#findButton').addEventListener('click',()=>{note.textContent='Matchmaking is not connected yet. Practice mode is ready to play.';document.querySelector('#startButton').focus();});
-  document.addEventListener('keydown',e=>{const keys={ArrowUp:'up',w:'up',ArrowDown:'down',s:'down',ArrowLeft:'left',a:'left',ArrowRight:'right',d:'right'};const dir=keys[e.key];if(dir){e.preventDefault();setDirection(dir);}});
-  document.querySelectorAll('[data-dir]').forEach(button=>button.addEventListener('pointerdown',e=>{e.preventDefault();setDirection(button.dataset.dir);}));
-  reset();
+
+  findButton.addEventListener('click', enterQueue);
+  startButton.addEventListener('click', enterQueue);
+  document.querySelector('#restartButton').addEventListener('click', () => {
+    if (phase === 'queued') { send({type:'cancel_queue'}); return; }
+    if (phase === 'playing' || phase === 'countdown') { intentionallyLeaving=true; send({type:'leave_match'}); phase='idle'; snapshot=null; clearInterval(clockTimer); }
+    showOverlay('FREE MATCHMAKING','Find your opponent.','Join the queue and get matched with another player online.');
+    matchbar.classList.remove('is-live','is-countdown');
+    document.querySelector('#modeLabel').textContent='FREE DUEL · IDLE';
+    setStatus('Ready when you are.'); updateButtons(); draw();
+  });
+
+  document.addEventListener('keydown', event => {
+    const keys = {ArrowUp:'up',w:'up',W:'up',ArrowDown:'down',s:'down',S:'down',ArrowLeft:'left',a:'left',A:'left',ArrowRight:'right',d:'right',D:'right'};
+    const direction = keys[event.key];
+    if(direction){event.preventDefault();sendTurn(direction);}
+  });
+  document.querySelectorAll('[data-dir]').forEach(button => button.addEventListener('pointerdown',event=>{event.preventDefault();sendTurn(button.dataset.dir);}));
+  window.addEventListener('beforeunload',()=>{shouldConnect=false;send({type:'leave_match'});socket?.close();});
+  setInterval(()=>send({type:'ping'}),20000);
+  draw(); updateButtons(); connect();
 })();
