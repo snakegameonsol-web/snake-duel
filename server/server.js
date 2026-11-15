@@ -51,7 +51,7 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 function send(client, message) {
-  if (client?.readyState === WebSocket.OPEN) client.send(JSON.stringify(message));
+  if (client?.ws?.readyState === WebSocket.OPEN) client.ws.send(JSON.stringify(message));
 }
 
 function cleanName(value) {
@@ -309,3 +309,4 @@ function shutdown() {
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
