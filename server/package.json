@@ -1,0 +1,16 @@
+{
+  "name": "snake-duel-match-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Free real-time matchmaking and authoritative Snake duel server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
