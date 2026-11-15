@@ -86,4 +86,34 @@
 /* Clearer player and opponent labels in the status bar. */
 .player-caption,.opponent-score span,.score-box span{font-size:9px}
 @media(max-width:560px){.player-caption,.opponent-score span,.score-box span{font-size:8px}}
+/* Stronger readability for player labels and match details. */
+.player-caption,.opponent-score span,.score-box span{
+  color:#dfff9c!important;
+  font-size:12px!important;
+  font-weight:800!important;
+  letter-spacing:.12em;
+}
+.match-meta{
+  color:#d4dfd3;
+  font:700 11px 'DM Mono',monospace;
+  letter-spacing:.06em;
+}
+.match-meta span:first-child{color:#f0f4eb}
+.fullscreen-hint{
+  display:inline-flex;
+  align-items:center;
+  width:max-content;
+  max-width:40%;
+  padding:7px 11px;
+  border:1px solid #d6ff83;
+  border-radius:8px;
+  background:#c6fa72;
+  color:#17200f;
+  font:800 10px/1.35 'DM Mono',monospace;
+  letter-spacing:0;
+}
+@media(max-width:560px){
+  .player-caption,.opponent-score span,.score-box span{font-size:10px!important}
+  .match-meta{font-size:9px;gap:5px}
+}
 
