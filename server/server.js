@@ -285,6 +285,7 @@ function handleMessage(client, payload) {
     const snake = client.match?.snakes[client.playerIndex];
     if (!next || !snake || client.match.finished || !client.match.startedAt) return;
     if (snake.turnLocked) return;
+    if (next.x === snake.nextDirection.x && next.y === snake.nextDirection.y) return;
     if (next.x === -snake.nextDirection.x && next.y === -snake.nextDirection.y) return;
     snake.nextDirection = next;
     snake.turnLocked = true;
