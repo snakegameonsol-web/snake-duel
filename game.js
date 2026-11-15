@@ -14,6 +14,7 @@
   const matchbar = document.querySelector('.matchbar');
   const connectionState = document.querySelector('#connectionState');
   const scoreEls = [document.querySelector('#score'), document.querySelector('#opponentScore')];
+  const selfScoreLabel = document.querySelector('#selfScoreLabel');
   const size = 25;
   const cell = canvas.width / size;
   const SERVER_URL = window.SNAKE_DUEL_SERVER_URL || (location.hostname === 'localhost' ? 'ws://localhost:10000/ws' : '');
@@ -153,6 +154,7 @@
         document.querySelector('#opponentName').style.setProperty('--snake-color',opponentColor);
         document.querySelector('#opponentName').classList.add('color-known');
         scoreEls[0].style.color = selfColor;
+        selfScoreLabel.style.color = selfColor;
         scoreEls[1].style.color = opponentColor;
         seatColorCopy = `Your snake is ${colorNames[playerIndex]}; ${opponentName}'s snake is ${colorNames[1-playerIndex]}.`;
         setStatus(`Matched with ${opponentName}. Get ready!`);
