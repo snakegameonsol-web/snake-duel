@@ -63,4 +63,24 @@
   box-shadow:inset 0 0 0 1px #e0a07b,inset 0 0 0 16px rgba(24,14,10,.35),0 0 14px rgba(0,0,0,.38);
 }
 .board-wrap::after{inset:16px;border-color:rgba(238,188,153,.42);box-shadow:inset 0 0 0 1px rgba(35,19,14,.72)}
+/* Mobile wall: keep the same terracotta brickwork readable at small board sizes. */
+@media(max-width:560px){
+  .board-wrap::before{
+    background:
+      repeating-linear-gradient(90deg,#bd8062 0 25px,#39261f 25px 29px,#956047 29px 54px,#39261f 54px 58px) 0 0/100% 10px no-repeat,
+      repeating-linear-gradient(90deg,#986047 0 12px,#39261f 12px 16px,#c18a6b 16px 41px,#39261f 41px 45px,#80503b 45px 70px,#39261f 70px 74px) 0 10px/100% 10px no-repeat,
+      repeating-linear-gradient(90deg,#a66b50 0 12px,#39261f 12px 16px,#c18a6b 16px 41px,#39261f 41px 45px,#80503b 45px 70px,#39261f 70px 74px) 0 calc(100% - 20px)/100% 10px no-repeat,
+      repeating-linear-gradient(90deg,#bd8062 0 25px,#39261f 25px 29px,#956047 29px 54px,#39261f 54px 58px) 0 calc(100% - 10px)/100% 10px no-repeat,
+      repeating-linear-gradient(0deg,#bd8062 0 25px,#39261f 25px 29px,#956047 29px 54px,#39261f 54px 58px) 0 0/10px 100% no-repeat,
+      repeating-linear-gradient(0deg,#986047 0 12px,#39261f 12px 16px,#c18a6b 16px 41px,#39261f 41px 45px,#80503b 45px 70px,#39261f 70px 74px) 10px 0/10px 100% no-repeat,
+      repeating-linear-gradient(0deg,#a66b50 0 12px,#39261f 12px 16px,#c18a6b 16px 41px,#39261f 41px 45px,#80503b 45px 70px,#39261f 70px 74px) calc(100% - 20px) 0/10px 100% no-repeat,
+      repeating-linear-gradient(0deg,#bd8062 0 25px,#39261f 25px 29px,#956047 29px 54px,#39261f 54px 58px) calc(100% - 10px) 0/10px 100% no-repeat,
+      linear-gradient(180deg,rgba(255,224,197,.24),transparent 58%,rgba(34,16,10,.32)) top/100% 20px no-repeat,
+      linear-gradient(0deg,rgba(34,16,10,.36),transparent 58%,rgba(255,224,197,.13)) bottom/100% 20px no-repeat,
+      linear-gradient(90deg,rgba(255,224,197,.2),transparent 58%,rgba(34,16,10,.35)) left/20px 100% no-repeat,
+      linear-gradient(270deg,rgba(34,16,10,.36),transparent 58%,rgba(255,224,197,.13)) right/20px 100% no-repeat;
+    box-shadow:inset 0 0 0 1px #e0a07b,inset 0 0 0 20px rgba(24,14,10,.35),0 0 14px rgba(0,0,0,.38);
+  }
+  .board-wrap::after{inset:20px}
+}
 
