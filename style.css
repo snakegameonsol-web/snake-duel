@@ -87,8 +87,14 @@
 .player-caption,.opponent-score span,.score-box span{font-size:9px}
 @media(max-width:560px){.player-caption,.opponent-score span,.score-box span{font-size:8px}}
 /* Stronger readability for player labels and match details. */
-.player-caption,.opponent-score span,.score-box span{
+.player-caption,.opponent-score span{
   color:#dfff9c!important;
+  font-size:12px!important;
+  font-weight:800!important;
+  letter-spacing:.12em;
+}
+.score-box span{
+  color:#dfff9c;
   font-size:12px!important;
   font-weight:800!important;
   letter-spacing:.12em;
