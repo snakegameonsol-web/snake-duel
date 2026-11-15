@@ -1,3 +1,2 @@
-// Replace this with your Render Web Service WebSocket URL after deploying server/.
-// Example: wss://snake-duel-server.onrender.com/ws
-window.SNAKE_DUEL_SERVER_URL = '';
+// Render Web Service WebSocket endpoint for free Snake Duels.
+window.SNAKE_DUEL_SERVER_URL = 'wss://snake-duel-match-server.onrender.com/ws';
