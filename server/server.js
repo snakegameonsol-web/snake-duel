@@ -7,7 +7,7 @@ const { WebSocket, WebSocketServer } = require('ws');
 const PORT = Number(process.env.PORT) || 10000;
 const BOARD = 25;
 const HEARTBEAT_MS = 25;
-const BASE_MOVE_MS = 140;
+const BASE_MOVE_MS = 160;
 const MIN_MOVE_MS = 75;
 const COUNTDOWN_SECONDS = 3;
 const MAX_CLIENTS = 500;
@@ -119,7 +119,7 @@ function moveInterval(score) {
 function makeFood(snakes) {
   const occupied = new Set(snakes.flatMap(snake => snake.body.map(point => `${point.x},${point.y}`)));
   const available = [];
-  for (let y = 0; y < BOARD; y++) for (let x = 0; x < BOARD; x++) if (!occupied.has(`${x},${y}`)) available.push({ x, y });
+  for (let y = 1; y < BOARD - 1; y++) for (let x = 1; x < BOARD - 1; x++) if (!occupied.has(`${x},${y}`)) available.push({ x, y });
   return available.length ? available[Math.floor(Math.random() * available.length)] : null;
 }
 
@@ -202,7 +202,7 @@ function tickMatch(match) {
     if (!moving[index]) return;
     const head = nextHeads[index];
     const ownBody = eating[index] ? snake.body : snake.body.slice(0, -1);
-    if (head.x < 0 || head.y < 0 || head.x >= BOARD || head.y >= BOARD || ownBody.some(point => isSame(point, head))) dead[index] = true;
+    if (head.x < 1 || head.y < 1 || head.x >= BOARD - 1 || head.y >= BOARD - 1 || ownBody.some(point => isSame(point, head))) dead[index] = true;
   });
 
   for (let index = 0; index < 2; index++) {
