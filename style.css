@@ -124,4 +124,33 @@
 }
 /* The desktop-only fullscreen hint must never appear on phones or tablets. */
 @media(max-width:1023px){.fullscreen-hint{display:none!important}}
+/* Single-course brick wall; keep the game interior separate from its border. */
+.board-wrap::before{
+  background:
+    repeating-linear-gradient(90deg,#bd8062 0 28px,#39261f 28px 31px,#956047 31px 59px,#39261f 59px 62px) 0 0/100% 12px no-repeat,
+    repeating-linear-gradient(90deg,#986047 0 28px,#39261f 28px 31px,#c18a6b 31px 59px,#39261f 59px 62px) 14px 100%/100% 12px no-repeat,
+    repeating-linear-gradient(0deg,#bd8062 0 28px,#39261f 28px 31px,#956047 31px 59px,#39261f 59px 62px) 0 0/12px 100% no-repeat,
+    repeating-linear-gradient(0deg,#986047 0 28px,#39261f 28px 31px,#c18a6b 31px 59px,#39261f 59px 62px) 100% 14px/12px 100% no-repeat,
+    linear-gradient(180deg,rgba(255,224,197,.2),transparent 65%,rgba(34,16,10,.26)) top/100% 12px no-repeat,
+    linear-gradient(0deg,rgba(34,16,10,.26),transparent 65%,rgba(255,224,197,.1)) bottom/100% 12px no-repeat,
+    linear-gradient(90deg,rgba(255,224,197,.16),transparent 65%,rgba(34,16,10,.24)) left/12px 100% no-repeat,
+    linear-gradient(270deg,rgba(34,16,10,.24),transparent 65%,rgba(255,224,197,.1)) right/12px 100% no-repeat;
+  box-shadow:inset 0 0 0 1px #e0a07b,0 0 12px rgba(0,0,0,.35);
+}
+.board-wrap::after{inset:12px;border-color:rgba(238,188,153,.3);box-shadow:none}
+@media(max-width:560px){
+  .board-wrap::before{
+    background:
+      repeating-linear-gradient(90deg,#bd8062 0 24px,#39261f 24px 27px,#956047 27px 51px,#39261f 51px 54px) 0 0/100% 10px no-repeat,
+      repeating-linear-gradient(90deg,#986047 0 24px,#39261f 24px 27px,#c18a6b 27px 51px,#39261f 51px 54px) 12px 100%/100% 10px no-repeat,
+      repeating-linear-gradient(0deg,#bd8062 0 24px,#39261f 24px 27px,#956047 27px 51px,#39261f 51px 54px) 0 0/10px 100% no-repeat,
+      repeating-linear-gradient(0deg,#986047 0 24px,#39261f 24px 27px,#c18a6b 27px 51px,#39261f 51px 54px) 100% 12px/10px 100% no-repeat,
+      linear-gradient(180deg,rgba(255,224,197,.2),transparent 65%,rgba(34,16,10,.26)) top/100% 10px no-repeat,
+      linear-gradient(0deg,rgba(34,16,10,.26),transparent 65%,rgba(255,224,197,.1)) bottom/100% 10px no-repeat,
+      linear-gradient(90deg,rgba(255,224,197,.16),transparent 65%,rgba(34,16,10,.24)) left/10px 100% no-repeat,
+      linear-gradient(270deg,rgba(34,16,10,.24),transparent 65%,rgba(255,224,197,.1)) right/10px 100% no-repeat;
+    box-shadow:inset 0 0 0 1px #e0a07b,0 0 12px rgba(0,0,0,.35);
+  }
+  .board-wrap::after{inset:10px}
+}
 
