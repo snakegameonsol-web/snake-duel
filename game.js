@@ -29,13 +29,18 @@
   let playerId = getPlayerId();
   let playerName = getPlayerName();
   let playerIndex = 0;
-  let phase = 'idle';
+  let phase = (() => { try { return sessionStorage.getItem('snakeDuelMatchActive') === '1' ? 'reconnecting' : 'idle'; } catch { return 'idle'; } })();
+  let matchPaused = phase === 'reconnecting';
   let wantsQueue = false;
   let intentionallyLeaving = false;
   let snapshot = null;
   let elapsedSeconds = 0;
   let clockTimer = null;
   let seatColorCopy = '';
+
+  function setResumeFlag(active) {
+    try { if (active) sessionStorage.setItem('snakeDuelMatchActive','1'); else sessionStorage.removeItem('snakeDuelMatchActive'); } catch {}
+  }
 
   function getPlayerId() {
     try {
@@ -88,8 +93,10 @@
     socket.addEventListener('open', () => {
       reconnectDelay = 1000;
       setConnection('online','ONLINE');
-      send({ type:'hello', playerId, name:playerName });
-      setStatus('Connected. Find an opponent to enter the queue.');
+      const reconnectingMatch = phase === 'reconnecting';
+      send({ type:'hello', playerId, name:playerName, resumeMatch:reconnectingMatch });
+      if (reconnectingMatch) setStatus('Back online. Restoring your paused match…', true);
+      else setStatus('Connected. Find an opponent to enter the queue.');
       if (wantsQueue) { wantsQueue = false; send({type:'join_queue', name:playerName}); }
     });
     socket.addEventListener('message', event => {
@@ -101,11 +108,20 @@
     socket.addEventListener('close', () => {
       socket = null;
       clearInterval(clockTimer);
-      const wasInMatch = phase === 'playing' || phase === 'countdown';
-      phase = 'idle'; snapshot = null; updateButtons();
-      setConnection('offline','OFFLINE');
-      if (wasInMatch) showOverlay('CONNECTION LOST','Match ended.','The connection closed. Find another free duel when you are ready.','↻');
-      setStatus('Trying to reconnect…', true);
+      const wasInMatch = phase === 'playing' || phase === 'countdown' || phase === 'reconnecting';
+      if (wasInMatch) {
+        phase = 'reconnecting';
+        matchPaused = true;
+        setConnection('searching','RECONNECTING');
+        showOverlay('CONNECTION LOST','Reconnecting…','Your match is paused. Reconnect within 15 seconds to continue.','◷','Reconnecting…');
+        document.querySelector('#modeLabel').textContent = 'RECONNECTING';
+        setStatus('Connection lost. The match is paused while we reconnect you.', true);
+      } else {
+        phase = 'idle'; snapshot = null;
+        setConnection('offline','OFFLINE');
+        setStatus('Trying to reconnect…', true);
+      }
+      updateButtons();
       scheduleReconnect();
     });
   }
@@ -119,10 +135,98 @@
     }, reconnectDelay);
   }
 
+  function applyPlayerIdentity(players, index) {
+    playerIndex = index;
+    const selfName = players[index].name;
+    const opponentName = players[1-index].name;
+    const selfColor = colors[index];
+    const opponentColor = colors[1-index];
+    const colorNames = ['lime green','coral pink'];
+    document.querySelector('#selfName').textContent = selfName;
+    document.querySelector('#selfCaption').textContent = 'YOUR SNAKE';
+    document.querySelector('#selfCaption').style.setProperty('--snake-color',selfColor);
+    document.querySelector('#selfCaption').classList.add('color-known');
+    document.querySelector('#selfAvatar').textContent = selfName.slice(0,1).toUpperCase();
+    document.querySelector('#selfAvatar').style.color = selfColor;
+    document.querySelector('#selfAvatar').style.borderColor = selfColor;
+    document.querySelector('#opponentName').textContent = opponentName.toUpperCase();
+    document.querySelector('#opponentName').style.setProperty('--snake-color',opponentColor);
+    document.querySelector('#opponentName').classList.add('color-known');
+    scoreEls[0].style.color = selfColor;
+    selfScoreLabel.style.color = selfColor;
+    scoreEls[1].style.color = opponentColor;
+    seatColorCopy = `Your snake is ${colorNames[index]}; ${opponentName}'s snake is ${colorNames[1-index]}.`;
+    return { selfName, opponentName };
+  }
+
+  function startMatchClock() {
+    clearInterval(clockTimer);
+    clockTimer = setInterval(() => { elapsedSeconds++; updateClock(); },1000);
+  }
+
   function handleMessage(message) {
     switch (message.type) {
       case 'welcome':
         if (message.playerId) playerId = message.playerId;
+        break;
+      case 'match_resumed': {
+        setResumeFlag(true);
+        const names = applyPlayerIdentity(message.players, message.playerIndex);
+        snapshot = message.state;
+        phase = message.phase;
+        matchPaused = Boolean(message.paused);
+        elapsedSeconds = snapshot?.elapsedSeconds || 0;
+        updateButtons(); draw(); updateScores(); updateClock();
+        if (phase === 'countdown') {
+          matchbar.classList.remove('is-live'); matchbar.classList.add('is-countdown');
+          document.querySelector('#modeLabel').textContent = 'OPPONENT FOUND';
+          if (matchPaused) {
+            showOverlay('OPPONENT RECONNECTING','Match paused.','Your match is restored. Waiting for the other player to reconnect.','◷','Waiting…');
+          } else {
+            showOverlay('MATCH RESTORED',String(message.countdownSeconds || 1),seatColorCopy,'✳','Starting…');
+          }
+        } else {
+          matchbar.classList.remove('is-countdown'); matchbar.classList.add('is-live');
+          document.querySelector('#modeLabel').textContent = 'LIVE FREE DUEL';
+          startMatchClock();
+          if (matchPaused) {
+            showOverlay('OPPONENT RECONNECTING','Match paused.','Your match is restored. Waiting for the other player to reconnect.','◷','Waiting…');
+            setStatus('Your match is restored. Waiting for your opponent…', true);
+          } else {
+            overlay.classList.add('hidden');
+            setConnection('online','ONLINE');
+            setStatus(`Match resumed with ${names.opponentName}.`);
+          }
+        }
+        updateButtons();
+        break;
+      }
+      case 'match_expired':
+        setResumeFlag(false);
+        phase = 'finished'; matchPaused = false; playerIndex = message.playerIndex;
+        if (message.players) applyPlayerIdentity(message.players, message.playerIndex);
+        snapshot = message.state || snapshot;
+        clearInterval(clockTimer); matchbar.classList.remove('is-live','is-countdown');
+        document.querySelector('#modeLabel').textContent = 'DUEL COMPLETE';
+        draw(); updateScores(); updateClock(); updateButtons();
+        if (message.winner === null) {
+          showOverlay('MATCH ENDED','No winner.','Both players lost connection before either returned.','↻','Find a new duel');
+          setStatus('The reconnect window expired for both players.');
+        } else if (message.winner === playerIndex) {
+          showOverlay('YOU WIN BY FORFEIT','Your opponent did not reconnect.','The 15-second reconnect window expired.','✳','Find a new duel');
+          setStatus('Your opponent did not reconnect in time.');
+        } else {
+          showOverlay('MATCH ENDED','Reconnect window expired.','The match ended while you were disconnected.','↻','Find a new duel');
+          setStatus('Your reconnect window expired.');
+        }
+        break;
+      case 'resume_unavailable':
+        setResumeFlag(false);
+        phase = 'finished'; matchPaused = false; clearInterval(clockTimer);
+        document.querySelector('#modeLabel').textContent = 'DUEL COMPLETE';
+        showOverlay('MATCH NOT RESTORED','Reconnect window expired.','This match is no longer active. Start a new free duel when you are ready.','↻','Find a new duel');
+        setStatus('This match could not be restored.');
+        updateButtons();
         break;
       case 'queue':
         phase = 'queued'; updateButtons(); setConnection('searching','FINDING MATCH');
@@ -137,26 +241,9 @@
         showOverlay('FREE MATCHMAKING','Find your opponent.','Join the queue and get matched with another player online.');
         break;
       case 'match_found':
-        phase = 'countdown'; playerIndex = message.playerIndex;
-        const selfName = message.players[playerIndex].name;
-        const opponentName = message.players[1-playerIndex].name;
-        const selfColor = colors[playerIndex];
-        const opponentColor = colors[1-playerIndex];
-        const colorNames = ['lime green','coral pink'];
-        document.querySelector('#selfName').textContent = selfName;
-        document.querySelector('#selfCaption').textContent = 'YOUR SNAKE';
-        document.querySelector('#selfCaption').style.setProperty('--snake-color',selfColor);
-        document.querySelector('#selfCaption').classList.add('color-known');
-        document.querySelector('#selfAvatar').textContent = selfName.slice(0,1).toUpperCase();
-        document.querySelector('#selfAvatar').style.color = selfColor;
-        document.querySelector('#selfAvatar').style.borderColor = selfColor;
-        document.querySelector('#opponentName').textContent = opponentName.toUpperCase();
-        document.querySelector('#opponentName').style.setProperty('--snake-color',opponentColor);
-        document.querySelector('#opponentName').classList.add('color-known');
-        scoreEls[0].style.color = selfColor;
-        selfScoreLabel.style.color = selfColor;
-        scoreEls[1].style.color = opponentColor;
-        seatColorCopy = `Your snake is ${colorNames[playerIndex]}; ${opponentName}'s snake is ${colorNames[1-playerIndex]}.`;
+        setResumeFlag(true);
+        phase = 'countdown'; matchPaused = false;
+        const { opponentName } = applyPlayerIdentity(message.players, message.playerIndex);
         setStatus(`Matched with ${opponentName}. Get ready!`);
         updateButtons();
         document.querySelector('#modeLabel').textContent = 'OPPONENT FOUND';
@@ -170,20 +257,57 @@
         document.querySelector('#overlayCopy').textContent = seatColorCopy || 'Take your starting position.';
         break;
       case 'match_start':
-        phase = 'playing'; snapshot = message.state; elapsedSeconds = 0;
+        phase = 'playing'; matchPaused = false; snapshot = message.state; elapsedSeconds = 0;
         overlay.classList.add('hidden'); matchbar.classList.remove('is-countdown'); matchbar.classList.add('is-live');
         document.querySelector('#modeLabel').textContent = 'LIVE FREE DUEL';
         setStatus('Duel live. Collect fruit and stay alive.');
-        clearInterval(clockTimer);
-        clockTimer = setInterval(() => { elapsedSeconds++; updateClock(); },1000);
+        startMatchClock();
         draw(); updateScores(); updateClock(); updateButtons();
         break;
       case 'state':
         snapshot = message.state; phase = 'playing'; draw(); updateScores(); updateClock();
         break;
+      case 'opponent_disconnected':
+        phase = message.phase || phase;
+        matchPaused = true;
+        snapshot = message.state || snapshot;
+        clearInterval(clockTimer);
+        draw(); updateScores(); updateClock();
+        document.querySelector('#modeLabel').textContent = 'MATCH PAUSED';
+        showOverlay('OPPONENT DISCONNECTED','Match paused.',`Waiting up to ${message.reconnectInSeconds || 15} seconds for your opponent to return.`,'◷','Waiting…');
+        startButton.disabled = true;
+        setStatus('Your opponent lost connection. The match is paused for up to 15 seconds.', true);
+        break;
+      case 'opponent_reconnected':
+        snapshot = message.state || snapshot;
+        phase = message.phase || phase;
+        matchPaused = Boolean(message.paused);
+        draw(); updateScores(); updateClock();
+        if (phase === 'playing') {
+          matchbar.classList.remove('is-countdown'); matchbar.classList.add('is-live');
+          document.querySelector('#modeLabel').textContent = matchPaused ? 'MATCH PAUSED' : 'LIVE FREE DUEL';
+          if (matchPaused) {
+            showOverlay('OPPONENT RECONNECTED','Match paused.','Waiting for the other player to reconnect.','◷','Waiting…');
+          } else {
+            overlay.classList.add('hidden');
+            startMatchClock();
+            setStatus('Opponent reconnected. The duel continues.');
+          }
+        } else if (phase === 'countdown') {
+          matchbar.classList.remove('is-live'); matchbar.classList.add('is-countdown');
+          document.querySelector('#modeLabel').textContent = matchPaused ? 'MATCH PAUSED' : 'OPPONENT FOUND';
+          if (matchPaused) showOverlay('OPPONENT RECONNECTED','Match paused.','Waiting for the other player to reconnect.','◷','Waiting…');
+          else {
+            showOverlay('OPPONENT RECONNECTED',String(message.countdownSeconds || 1),seatColorCopy,'✳','Starting…');
+            setStatus('Opponent reconnected. The countdown continues.');
+          }
+        }
+        updateButtons();
+        break;
       case 'match_over':
         if (intentionallyLeaving) { intentionallyLeaving = false; break; }
-        phase = 'finished'; snapshot = message.state || snapshot;
+        setResumeFlag(false);
+        phase = 'finished'; matchPaused = false; snapshot = message.state || snapshot;
         clearInterval(clockTimer); draw(); updateScores(); matchbar.classList.remove('is-live','is-countdown');
         document.querySelector('#modeLabel').textContent = 'DUEL COMPLETE';
         updateButtons();
@@ -199,7 +323,10 @@
         }
         break;
       case 'opponent_left':
-        phase = 'finished'; clearInterval(clockTimer); updateButtons();
+        setResumeFlag(false);
+        phase = 'finished'; matchPaused = false; snapshot = message.state || snapshot;
+        clearInterval(clockTimer); matchbar.classList.remove('is-live','is-countdown');
+        draw(); updateScores(); updateClock(); updateButtons();
         showOverlay('OPPONENT LEFT','You win by forfeit.','Your opponent disconnected. Find another free duel.','✳','Play again');
         setStatus('Opponent disconnected. Victory awarded by forfeit.');
         document.querySelector('#modeLabel').textContent = 'DUEL COMPLETE';
@@ -214,15 +341,15 @@
 
   function updateButtons() {
     const isQueued = phase === 'queued';
-    const inMatch = phase === 'countdown' || phase === 'playing';
-    findButton.disabled = inMatch;
+    const inMatch = phase === 'countdown' || phase === 'playing' || phase === 'reconnecting';
+    findButton.disabled = inMatch || matchPaused;
     findButton.innerHTML = isQueued ? 'Cancel search <span>×</span>' : 'Find opponent <span>↗</span>';
-    startButton.disabled = phase === 'countdown' || phase === 'playing';
+    startButton.disabled = inMatch || matchPaused;
   }
 
   function enterQueue() {
     if (phase === 'queued') { send({type:'cancel_queue'}); return; }
-    if (phase === 'finished') { phase = 'idle'; snapshot = null; matchbar.classList.remove('is-live','is-countdown'); }
+    if (phase === 'finished') { setResumeFlag(false); phase = 'idle'; matchPaused = false; snapshot = null; matchbar.classList.remove('is-live','is-countdown'); }
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       connect();
       if (SERVER_URL) wantsQueue = true;
@@ -236,7 +363,7 @@
   }
 
   function sendTurn(name) {
-    if (phase !== 'playing' || !directions[name]) return;
+    if (phase !== 'playing' || matchPaused || !directions[name]) return;
     const dir = directions[name];
     const current = snapshot?.snakes?.[playerIndex]?.direction;
     if (current && dir.x === -current.x && dir.y === -current.y) return;
@@ -385,7 +512,7 @@
   document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
   document.querySelector('#restartButton').addEventListener('click', () => {
     if (phase === 'queued') { send({type:'cancel_queue'}); return; }
-    if (phase === 'playing' || phase === 'countdown') { intentionallyLeaving=true; send({type:'leave_match'}); phase='idle'; snapshot=null; clearInterval(clockTimer); }
+    if (phase === 'playing' || phase === 'countdown') { setResumeFlag(false); intentionallyLeaving=true; send({type:'leave_match'}); phase='idle'; snapshot=null; clearInterval(clockTimer); }
     showOverlay('FREE MATCHMAKING','Find your opponent.','Join the queue and get matched with another player online.');
     matchbar.classList.remove('is-live','is-countdown');
     document.querySelector('#modeLabel').textContent='FREE DUEL · IDLE';
@@ -399,8 +526,8 @@
     if(direction){event.preventDefault();sendTurn(direction);}
   });
   document.querySelectorAll('[data-dir]').forEach(button => button.addEventListener('pointerdown',event=>{event.preventDefault();sendTurn(button.dataset.dir);}));
-  window.addEventListener('beforeunload',()=>{shouldConnect=false;send({type:'leave_match'});socket?.close();});
+  window.addEventListener('beforeunload',()=>{shouldConnect=false;socket?.close();});
   setInterval(()=>send({type:'ping'}),20000);
+  if (phase === 'reconnecting') showOverlay('RECONNECTING','Restoring your match…','The match is paused while we reconnect you.','◷','Reconnecting…');
   draw(); updateButtons(); updateFullscreenButton(); connect();
 })();
-
