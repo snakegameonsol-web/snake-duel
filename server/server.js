@@ -14,7 +14,7 @@ const RECONNECT_GRACE_MS = 15000;
 const CLIENT_HEARTBEAT_MS = 5000;
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || '';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY || '';
 const MAX_CLIENTS = 500;
 const MAX_MESSAGE_BYTES = 8192;
 const ALLOWED_ORIGINS = new Set(
@@ -74,7 +74,7 @@ function cleanPlayerId(value) {
 }
 
 async function persistMatchHistory(match, winner, state, options = {}) {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return;
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) return;
   const accountIds = match.accountIds || [];
   const rows = match.players.flatMap((player, index) => {
     const userId = accountIds[index];
@@ -83,7 +83,7 @@ async function persistMatchHistory(match, winner, state, options = {}) {
   });
   if (!rows.length) return;
   try {
-    const response = await fetch(SUPABASE_URL + '/rest/v1/match_history?on_conflict=match_id,user_id', { method: 'POST', headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY, 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(rows), signal: AbortSignal.timeout(8000) });
+    const response = await fetch(SUPABASE_URL + '/rest/v1/match_history?on_conflict=match_id,user_id', { method: 'POST', headers: { apikey: SUPABASE_SECRET_KEY, 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(rows), signal: AbortSignal.timeout(8000) });
     if (!response.ok) console.error('Could not persist match history. Supabase HTTP', response.status, (await response.text()).slice(0,300));
   } catch (error) { console.error('Could not persist match history:', error.message); }
 }
@@ -470,7 +470,7 @@ async function processHello(client, message, requestId) {
   if (client.identityRequestId !== requestId) return;
   client.accountId = auth.accountId;
   client.authStatus = auth.status;
-  send(client, { type: 'welcome', playerId: client.playerId, name: client.name, authenticated: Boolean(client.accountId), authStatus: auth.status, historySyncReady: Boolean(client.accountId && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) });
+  send(client, { type: 'welcome', playerId: client.playerId, name: client.name, authenticated: Boolean(client.accountId), authStatus: auth.status, historySyncReady: Boolean(client.accountId && SUPABASE_URL && SUPABASE_SECRET_KEY) });
   if (message.accessToken && auth.status === 'invalid') send(client, { type: 'auth_error', message: 'Your login session expired. Sign in again to sync match history.' });
   if (resumeDisconnectedPlayer(client) || (message.resumeMatch && resumeActivePlayer(client))) return;
   const expired = expiredSessions.get(client.playerId);
