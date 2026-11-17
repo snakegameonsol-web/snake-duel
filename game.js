@@ -18,6 +18,9 @@
   const size = 25;
   const cell = canvas.width / size;
   const SERVER_URL = window.SNAKE_DUEL_SERVER_URL || (location.hostname === 'localhost' ? 'ws://localhost:10000/ws' : '');
+  const SUPABASE_URL = window.SNAKE_DUEL_SUPABASE_URL || '';
+  const SUPABASE_PUBLISHABLE_KEY = window.SNAKE_DUEL_SUPABASE_PUBLISHABLE_KEY || '';
+  const supabaseClient = window.supabase?.createClient && SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY) : null;
   const directions = { up:{x:0,y:-1}, down:{x:0,y:1}, left:{x:-1,y:0}, right:{x:1,y:0} };
   const reverse = new Map([[directions.up,directions.down],[directions.down,directions.up],[directions.left,directions.right],[directions.right,directions.left]]);
   const colors = ['#d2ff87','#ff8c86'];
@@ -31,6 +34,11 @@
   let profileId = getProfileId();
   let activeMatchId = (() => { try { return sessionStorage.getItem('snakeDuelActiveMatchId') || ''; } catch { return ''; } })();
   let matchHistory = loadMatchHistory();
+  let cloudMatchHistory = [];
+  let currentSession = null;
+  let currentUser = null;
+  let historySyncReady = false;
+  let authMode = 'signin';
   let playerIndex = 0;
   let phase = (() => { try { return sessionStorage.getItem('snakeDuelMatchActive') === '1' ? 'reconnecting' : 'idle'; } catch { return 'idle'; } })();
   let matchPaused = phase === 'reconnecting';
@@ -78,16 +86,19 @@
   }
 
   function renderMatchHistory() {
-    const played = matchHistory.length;
-    const wins = matchHistory.filter(item => item.result === 'VICTORY').length;
+    const records = currentUser && historySyncReady ? cloudMatchHistory : matchHistory;
+    const played = records.length;
+    const wins = records.filter(item => item.result === 'VICTORY').length;
     document.querySelector('#recordHeading').textContent = playerName;
+    const storageLabel = document.querySelector('#recordStorageLabel');
+    storageLabel.textContent = currentUser && historySyncReady ? 'ACCOUNT SYNC' : currentUser ? 'LOCAL ONLY' : 'THIS BROWSER';
     document.querySelector('#recordPlayed').textContent = String(played);
     document.querySelector('#recordWins').textContent = String(wins);
     document.querySelector('#recordWinRate').textContent = `${played ? Math.round(wins / played * 100) : 0}%`;
     const list = document.querySelector('#matchHistoryList');
     list.replaceChildren();
     if (!played) { const empty = document.createElement('li'); empty.className = 'history-empty'; empty.textContent = 'Your completed free matches will appear here.'; list.append(empty); return; }
-    for (const item of matchHistory.slice(0,5)) {
+    for (const item of records.slice(0,5)) {
       const row = document.createElement('li'); row.className = 'history-row';
       const badge = document.createElement('span'); badge.className = `history-result ${item.result.toLowerCase()}`; badge.textContent = item.result === 'VICTORY' ? 'W' : item.result === 'DEFEAT' ? 'L' : 'D';
       const details = document.createElement('div'); details.className = 'history-details';
@@ -106,6 +117,11 @@
 
   function recordMatchResult(result, reason = 'normal') {
     const id = activeMatchId || crypto.randomUUID();
+    if (currentUser && historySyncReady) {
+      activeMatchId = ''; try { sessionStorage.removeItem('snakeDuelActiveMatchId'); } catch {}
+      setTimeout(() => { void loadCloudHistory(); }, 1200);
+      return;
+    }
     if (matchHistory.some(item => item.id === id)) return;
     const scores = snapshot?.scores || [];
     const duration = snapshot?.elapsedSeconds ?? elapsedSeconds;
@@ -116,6 +132,48 @@
     renderMatchHistory();
     activeMatchId = '';
     try { sessionStorage.removeItem('snakeDuelActiveMatchId'); } catch {}
+  }
+
+  function renderAccountState() {
+    const status=document.querySelector('#accountStatus'); const message=document.querySelector('#accountMessage'); const toggle=document.querySelector('#accountToggle'); const signOut=document.querySelector('#signOutButton'); const form=document.querySelector('#accountForm');
+    if (!supabaseClient) { status.textContent='Account sync is not configured yet.'; if(message)message.textContent='Add the Supabase project URL and publishable key in supabase-config.js.'; toggle.textContent='Account setup required'; signOut.hidden=true; return; }
+    form.classList.toggle('is-authenticated',Boolean(currentUser));
+    if (currentUser) { status.textContent='Signed in as '+(currentUser.email||'player')+'.'; toggle.textContent='Account connected'; signOut.hidden=false; if(message)message.textContent=historySyncReady?'Your match history syncs to your account.':'Server history storage still needs setup in Render.'; }
+    else { status.textContent='Guest mode: progress is saved in this browser.'; toggle.textContent='Sign in or create an account'; signOut.hidden=true; }
+  }
+
+  async function loadCloudHistory() {
+    if(!supabaseClient||!currentUser)return;
+    const {data,error}=await supabaseClient.from('match_history').select('match_id,opponent_name,result,your_score,opponent_score,duration_seconds,reason,created_at').order('created_at',{ascending:false}).limit(20);
+    if(error){document.querySelector('#accountMessage').textContent='Could not load account history. Check the match_history table and its access policy.';return;}
+    cloudMatchHistory=(data||[]).map(row=>({id:row.match_id,result:row.result,opponent:row.opponent_name,yourScore:row.your_score,opponentScore:row.opponent_score,duration:row.duration_seconds,reason:row.reason,endedAt:row.created_at}));
+    renderMatchHistory(); renderAccountState();
+  }
+
+  function sendHello() {
+    send({type:'hello',playerId,name:playerName,resumeMatch:phase==='reconnecting',accessToken:currentSession?.access_token||null});
+  }
+
+  async function initializeAuth() {
+    renderAccountState();
+    if(!supabaseClient)return;
+    supabaseClient.auth.onAuthStateChange((_event,session)=>{
+      currentSession=session; currentUser=session?.user||null; historySyncReady=false; cloudMatchHistory=[];
+      renderAccountState(); renderMatchHistory();
+      if(socket?.readyState===WebSocket.OPEN)sendHello();
+      if(currentUser)void loadCloudHistory();
+    });
+    const {data,error}=await supabaseClient.auth.getSession();
+    if(!error){currentSession=data.session;currentUser=data.session?.user||null;}
+    renderAccountState();
+    if(currentUser)void loadCloudHistory();
+  }
+
+  function setAuthMode(mode) {
+    authMode=mode; document.querySelector('#authSubmit').textContent=mode==='signup'?'Create account':'Sign in';
+    document.querySelector('#authModeToggle').textContent=mode==='signup'?'I already have an account':'Create an account';
+    document.querySelector('#accountPassword').autocomplete=mode==='signup'?'new-password':'current-password';
+    document.querySelector('#accountMessage').textContent=mode==='signup'?'Use at least 8 characters. You may need to confirm your email.':'';
   }
 
   function setConnection(kind, text) {
@@ -173,7 +231,7 @@
       reconnectDelay = 1000;
       setConnection('online','ONLINE');
       const reconnectingMatch = phase === 'reconnecting';
-      send({ type:'hello', playerId, name:playerName, resumeMatch:reconnectingMatch });
+      sendHello();
       if (reconnectingMatch) setStatus('Back online. Restoring your paused match…', true);
       else setStatus('Connected. Find an opponent to enter the queue.');
       if (wantsQueue) { wantsQueue = false; send({type:'join_queue', name:playerName}); }
@@ -247,6 +305,12 @@
     switch (message.type) {
       case 'welcome':
         if (message.playerId) playerId = message.playerId;
+        historySyncReady=Boolean(message.historySyncReady);
+        renderAccountState(); renderMatchHistory();
+        if(currentUser&&historySyncReady)void loadCloudHistory();
+        break;
+      case 'auth_error':
+        document.querySelector('#accountMessage').textContent=message.message||'Please sign in again.';
         break;
       case 'match_resumed': {
         setResumeFlag(true);
@@ -592,6 +656,20 @@
     updateFullscreenButton();
   }
 
+  document.querySelector('#accountToggle').addEventListener('click',()=>{const form=document.querySelector('#accountForm');form.hidden=!form.hidden;if(!form.hidden){document.querySelector('#accountMessage').textContent=supabaseClient?'':'Add the Supabase URL and publishable key in supabase-config.js first.';}});
+  document.querySelector('#authModeToggle').addEventListener('click',()=>setAuthMode(authMode==='signin'?'signup':'signin'));
+  document.querySelector('#accountForm').addEventListener('submit',async event=>{
+    event.preventDefault();if(!supabaseClient){renderAccountState();return;}
+    const email=document.querySelector('#accountEmail').value.trim();const password=document.querySelector('#accountPassword').value;const submit=document.querySelector('#authSubmit');const message=document.querySelector('#accountMessage');submit.disabled=true;message.textContent=authMode==='signup'?'Creating your account…':'Signing in…';
+    try{
+      const result=authMode==='signup'?await supabaseClient.auth.signUp({email,password,options:{data:{display_name:playerName},emailRedirectTo:location.origin+location.pathname}}):await supabaseClient.auth.signInWithPassword({email,password});
+      if(result.error)throw result.error;
+      if(authMode==='signup'&&!result.data.session){message.textContent='Check your email and confirm your account, then sign in here.';}
+      else{message.textContent='Account connected. Loading your match history…';document.querySelector('#accountForm').hidden=true;}
+    }catch(error){message.textContent=error.message||'Could not connect your account.';}finally{submit.disabled=false;}
+  });
+  document.querySelector('#signOutButton').addEventListener('click',async()=>{if(!supabaseClient)return;const {error}=await supabaseClient.auth.signOut();document.querySelector('#accountMessage').textContent=error?error.message:'Signed out. Guest stats remain in this browser.';});
+  setAuthMode('signin');
   findButton.addEventListener('click', enterQueue);
   startButton.addEventListener('click', enterQueue);
   fullscreenButton.addEventListener('click', toggleFullscreen);
@@ -617,5 +695,6 @@
   setInterval(()=>send({type:'ping'}),20000);
   if (phase === 'reconnecting') showOverlay('RECONNECTING','Restoring your match…','The match is paused while we reconnect you.','◷','Reconnecting…');
   renderMatchHistory();
-  draw(); updateButtons(); updateFullscreenButton(); connect();
+  draw(); updateButtons(); updateFullscreenButton();
+  initializeAuth().then(()=>connect()).catch(()=>connect());
 })();
