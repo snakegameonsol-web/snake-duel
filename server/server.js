@@ -12,8 +12,11 @@ const MIN_MOVE_MS = 75;
 const COUNTDOWN_SECONDS = 3;
 const RECONNECT_GRACE_MS = 15000;
 const CLIENT_HEARTBEAT_MS = 5000;
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const MAX_CLIENTS = 500;
-const MAX_MESSAGE_BYTES = 1024;
+const MAX_MESSAGE_BYTES = 8192;
 const ALLOWED_ORIGINS = new Set(
   (process.env.ALLOWED_ORIGINS || 'https://snakegameonsol-web.github.io,http://localhost:5500,http://127.0.0.1:5500')
     .split(',').map(value => value.trim()).filter(Boolean)
@@ -68,6 +71,33 @@ function cleanName(value) {
 function cleanPlayerId(value) {
   if (typeof value === 'string' && /^[a-zA-Z0-9-]{8,80}$/.test(value)) return value;
   return randomUUID();
+}
+
+async function persistMatchHistory(match, winner, state, options = {}) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return;
+  const accountIds = match.accountIds || [];
+  const rows = match.players.flatMap((player, index) => {
+    const userId = accountIds[index];
+    if (!userId) return [];
+    return [{ match_id: match.id, user_id: userId, opponent_name: cleanName(match.players[1-index].name), result: winner === null ? 'DRAW' : winner === index ? 'VICTORY' : 'DEFEAT', your_score: Number(state.scores[index] || 0), opponent_score: Number(state.scores[1-index] || 0), duration_seconds: Number(state.elapsedSeconds || 0), reason: options.reason || (options.forfeitIndex !== undefined ? 'forfeit' : winner === null ? 'draw' : 'normal') }];
+  });
+  if (!rows.length) return;
+  try {
+    const response = await fetch(SUPABASE_URL + '/rest/v1/match_history?on_conflict=match_id,user_id', { method: 'POST', headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY, 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(rows), signal: AbortSignal.timeout(8000) });
+    if (!response.ok) console.error('Could not persist match history. Supabase HTTP', response.status, (await response.text()).slice(0,300));
+  } catch (error) { console.error('Could not persist match history:', error.message); }
+}
+
+async function verifySupabaseToken(token) {
+  if (!token) return { accountId: null, status: 'guest' };
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) return { accountId: null, status: 'server_unconfigured' };
+  if (typeof token !== 'string' || token.length > 7000) return { accountId: null, status: 'invalid' };
+  try {
+    const response = await fetch(SUPABASE_URL + '/auth/v1/user', { headers: { apikey: SUPABASE_PUBLISHABLE_KEY, authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return { accountId: null, status: response.status === 401 ? 'invalid' : 'unavailable' };
+    const user = await response.json();
+    return { accountId: typeof user.id === 'string' ? user.id : null, status: user.id ? 'authenticated' : 'invalid' };
+  } catch { return { accountId: null, status: 'unavailable' }; }
 }
 
 function removeFromQueue(client) {
@@ -142,7 +172,7 @@ function publicState(match) {
 function createMatch(first, second) {
   const players = [first, second];
   const match = {
-    id: randomUUID(), players, finished: false, phase: 'countdown',
+    id: randomUUID(), players, accountIds: players.map(player => player.accountId || null), finished: false, phase: 'countdown',
     snakes: [
       makeSnake(5, 7, DIRECTIONS.right, DIRECTIONS.left),
       makeSnake(19, 17, DIRECTIONS.left, DIRECTIONS.right)
@@ -291,6 +321,7 @@ function finishMatch(match, winner, options = {}) {
   clearMatchReconnects(match);
   matches.delete(match.id);
   const state = publicState(match);
+  void persistMatchHistory(match, winner, state, options);
   match.players.forEach((player, index) => {
     player.match = null;
     player.playerIndex = null;
@@ -428,29 +459,37 @@ function expireDisconnectedPlayer(match, index, client) {
   });
 }
 
-function handleMessage(client, payload) {
+async function processHello(client, message, requestId) {
+  client.playerId = cleanPlayerId(message.playerId);
+  client.name = cleanName(message.name);
+  const auth = await verifySupabaseToken(message.accessToken);
+  if (client.identityRequestId !== requestId) return;
+  client.accountId = auth.accountId;
+  client.authStatus = auth.status;
+  send(client, { type: 'welcome', playerId: client.playerId, name: client.name, authenticated: Boolean(client.accountId), authStatus: auth.status, historySyncReady: Boolean(client.accountId && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) });
+  if (message.accessToken && auth.status === 'invalid') send(client, { type: 'auth_error', message: 'Your login session expired. Sign in again to sync match history.' });
+  if (resumeDisconnectedPlayer(client) || (message.resumeMatch && resumeActivePlayer(client))) return;
+  const expired = expiredSessions.get(client.playerId);
+  if (expired && expired.expiresAt > Date.now()) {
+    clearTimeout(expired.timer); expiredSessions.delete(client.playerId);
+    send(client, { type: expired.type, winner: expired.winner, playerIndex: expired.playerIndex, state: expired.state, reason: expired.reason, players: expired.players });
+  } else if (message.resumeMatch) send(client, { type: 'resume_unavailable' });
+}
+
+async function handleMessage(client, payload) {
   let message;
   try { message = JSON.parse(payload.toString()); }
   catch { send(client, { type: 'error', message: 'Invalid message format.' }); return; }
   if (!message || typeof message.type !== 'string') return;
 
   if (message.type === 'hello') {
-    client.playerId = cleanPlayerId(message.playerId);
-    client.name = cleanName(message.name);
-    send(client, { type: 'welcome', playerId: client.playerId, name: client.name });
-    if (resumeDisconnectedPlayer(client) || (message.resumeMatch && resumeActivePlayer(client))) return;
-    const expired = expiredSessions.get(client.playerId);
-    if (expired && expired.expiresAt > Date.now()) {
-      clearTimeout(expired.timer);
-      expiredSessions.delete(client.playerId);
-      send(client, {
-        type: expired.type, winner: expired.winner, playerIndex: expired.playerIndex,
-        state: expired.state, reason: expired.reason, players: expired.players
-      });
-    } else if (message.resumeMatch) {
-      send(client, { type: 'resume_unavailable' });
-    }
-  } else if (message.type === 'join_queue') {
+    client.identityRequestId = (client.identityRequestId || 0) + 1;
+    client.identityReady = processHello(client, message, client.identityRequestId);
+    await client.identityReady;
+    return;
+  }
+  await client.identityReady;
+  if (message.type === 'join_queue') {
     queueClient(client, message.name);
   } else if (message.type === 'cancel_queue') {
     removeFromQueue(client);
@@ -473,10 +512,10 @@ function handleMessage(client, payload) {
 }
 
 wss.on('connection', ws => {
-  const client = { ws, playerId: null, name: 'Guest', queued: false, match: null, playerIndex: null, alive: true, connected: true };
+  const client = { ws, playerId: null, name: 'Guest', accountId: null, authStatus: 'guest', identityReady: Promise.resolve(), identityRequestId: 0, queued: false, match: null, playerIndex: null, alive: true, connected: true };
   clients.add(client);
   ws.on('pong', () => { client.alive = true; });
-  ws.on('message', payload => handleMessage(client, payload));
+  ws.on('message', payload => { handleMessage(client, payload).catch(error => { console.warn('Message handling failed:', error.message); send(client, { type: 'error', message: 'Could not process that request.' }); }); });
   ws.on('error', error => console.warn('WebSocket error:', error.message));
   ws.on('close', () => {
     removeFromQueue(client);
