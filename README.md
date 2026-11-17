@@ -43,7 +43,7 @@ This step adds email/password accounts and stores completed match results for si
 1. In the Supabase SQL Editor, run supabase/schema.sql.
 2. In Supabase Project Settings, copy the Project URL and Publishable key into supabase-config.js. The publishable key is public; never put a service-role or secret key in this file.
 3. In Supabase Authentication URL Configuration, set the Site URL and allowed Redirect URL to https://snakegameonsol-web.github.io/.
-4. In the Render service Environment settings, add SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, and SUPABASE_SERVICE_ROLE_KEY. Keep the service-role key only in Render's private environment settings. Redeploy the match server after saving.
+4. In the Render service Environment settings, add SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, and SUPABASE_SECRET_KEY. Keep the secret key only in Render's private environment settings. Redeploy the match server after saving.
 5. Commit and push supabase-config.js and the project files so GitHub Pages updates. Create an account, confirm the email if prompted, then sign in before joining a match for the server to save it to the account.
 
 The UI uses the Supabase JavaScript client from the official CDN. The SQL grants authenticated users read access only to their own records; it grants result writes to the server role only.
