@@ -10,6 +10,8 @@ const HEARTBEAT_MS = 25;
 const BASE_MOVE_MS = 160;
 const MIN_MOVE_MS = 75;
 const COUNTDOWN_SECONDS = 3;
+const RECONNECT_GRACE_MS = 15000;
+const CLIENT_HEARTBEAT_MS = 5000;
 const MAX_CLIENTS = 500;
 const MAX_MESSAGE_BYTES = 1024;
 const ALLOWED_ORIGINS = new Set(
@@ -24,6 +26,8 @@ const DIRECTIONS = {
 const clients = new Set();
 const waiting = [];
 const matches = new Map();
+const suspendedPlayers = new Map();
+const expiredSessions = new Map();
 
 const server = http.createServer((request, response) => {
   if (request.url === '/health' || request.url === '/') {
@@ -124,52 +128,70 @@ function makeFood(snakes) {
 }
 
 function publicState(match) {
+  const now = match.pausedAt ?? Date.now();
+  const elapsedMs = match.startedAt ? Math.max(0, now - match.startedAt - match.pausedDurationMs) : 0;
   return {
     snakes: match.snakes.map(snake => ({ body: snake.body, direction: snake.direction, alive: snake.alive })),
     scores: match.scores,
     speedMultipliers: match.scores.map(score => Math.round((BASE_MOVE_MS / moveInterval(score)) * 10) / 10),
     food: match.food,
-    elapsedSeconds: Math.floor((Date.now() - match.startedAt) / 1000)
+    elapsedSeconds: Math.floor(elapsedMs / 1000)
   };
 }
 
 function createMatch(first, second) {
   const players = [first, second];
   const match = {
-    id: randomUUID(), players, timers: new Set(), finished: false,
+    id: randomUUID(), players, finished: false, phase: 'countdown',
     snakes: [
       makeSnake(5, 7, DIRECTIONS.right, DIRECTIONS.left),
       makeSnake(19, 17, DIRECTIONS.left, DIRECTIONS.right)
     ],
-    scores: [0, 0], food: null, startedAt: 0, tickTimer: null
+    scores: [0, 0], food: null, startedAt: 0, tickTimer: null,
+    countdownTimer: null, countdownSeconds: COUNTDOWN_SECONDS,
+    disconnected: new Map(), paused: false, pausedAt: null, pausedDurationMs: 0
   };
   match.food = makeFood(match.snakes);
   matches.set(match.id, match);
   players.forEach((player, index) => {
     player.match = match;
     player.playerIndex = index;
+    player.connected = true;
     send(player, {
       type: 'match_found', matchId: match.id, playerIndex: index,
       players: players.map(item => ({ name: item.name }))
     });
   });
-  let seconds = COUNTDOWN_SECONDS;
-  const countdown = setInterval(() => {
-    if (match.finished || players.some(player => player.ws.readyState !== WebSocket.OPEN)) {
-      clearInterval(countdown); return;
+  runCountdown(match);
+}
+
+function stopCountdown(match) {
+  if (!match.countdownTimer) return;
+  clearInterval(match.countdownTimer);
+  match.countdownTimer = null;
+}
+
+function runCountdown(match) {
+  if (match.finished || match.phase !== 'countdown' || match.paused || match.countdownTimer) return;
+  match.countdownTimer = setInterval(() => {
+    if (match.finished || match.paused) { stopCountdown(match); return; }
+    if (match.players.some(player => !player.connected || player.ws.readyState !== WebSocket.OPEN)) {
+      stopCountdown(match);
+      return;
     }
-    players.forEach(player => send(player, { type: 'countdown', seconds }));
-    seconds -= 1;
-    if (seconds < 1) {
-      clearInterval(countdown);
+    const seconds = match.countdownSeconds;
+    match.players.forEach(player => send(player, { type: 'countdown', seconds }));
+    match.countdownSeconds -= 1;
+    if (match.countdownSeconds < 1) {
+      stopCountdown(match);
       startMatch(match);
     }
   }, 1000);
-  match.timers.add(countdown);
 }
 
 function startMatch(match) {
   if (match.finished) return;
+  match.phase = 'playing';
   match.startedAt = Date.now();
   match.snakes.forEach(snake => { snake.lastMovedAt = match.startedAt; });
   const state = publicState(match);
@@ -178,7 +200,7 @@ function startMatch(match) {
 }
 
 function scheduleNextTick(match) {
-  if (match.finished) return;
+  if (match.finished || match.paused) return;
   match.tickTimer = setTimeout(() => {
     tickMatch(match);
     scheduleNextTick(match);
@@ -188,7 +210,7 @@ function scheduleNextTick(match) {
 function isSame(a, b) { return a.x === b.x && a.y === b.y; }
 
 function tickMatch(match) {
-  if (match.finished) return;
+  if (match.finished || match.paused) return;
   const now = Date.now();
   const moving = match.snakes.map((snake, index) => now - snake.lastMovedAt >= moveInterval(match.scores[index]));
   if (!moving.some(Boolean)) return;
@@ -236,33 +258,174 @@ function tickMatch(match) {
   if (!match.food) finishMatch(match, match.scores[0] === match.scores[1] ? null : (match.scores[0] > match.scores[1] ? 0 : 1));
 }
 
-function finishMatch(match, winner) {
+function clearMatchReconnects(match) {
+  stopCountdown(match);
+  for (const player of match.disconnected.values()) {
+    clearTimeout(player.reconnectTimer);
+    if (player.playerId) suspendedPlayers.delete(player.playerId);
+  }
+  match.disconnected.clear();
+  if (match.pausedAt !== null) {
+    match.pausedDurationMs += Date.now() - match.pausedAt;
+    match.pausedAt = null;
+  }
+  match.paused = false;
+}
+
+function rememberExpiredSession(playerId, result) {
+  if (!playerId) return;
+  const previous = expiredSessions.get(playerId);
+  if (previous) clearTimeout(previous.timer);
+  const record = {
+    ...result,
+    expiresAt: Date.now() + 60000,
+    timer: setTimeout(() => expiredSessions.delete(playerId), 60000)
+  };
+  expiredSessions.set(playerId, record);
+}
+
+function finishMatch(match, winner, options = {}) {
   if (match.finished) return;
   match.finished = true;
   clearTimeout(match.tickTimer);
-  for (const timer of match.timers) clearInterval(timer);
+  clearMatchReconnects(match);
   matches.delete(match.id);
   const state = publicState(match);
-  match.players.forEach(player => {
+  match.players.forEach((player, index) => {
     player.match = null;
     player.playerIndex = null;
-    send(player, { type: 'match_over', winner, state });
+    if (options.forfeitIndex !== undefined && index !== options.forfeitIndex) {
+      send(player, { type: 'opponent_left', winner, state, reason: options.reason || 'forfeit' });
+    } else {
+      send(player, { type: 'match_over', winner, state, reason: index === options.forfeitIndex ? 'forfeit' : undefined });
+    }
   });
 }
 
-function leaveMatch(client, message = 'opponent_left') {
+function leaveMatch(client) {
   const match = client.match;
   if (!match || match.finished) return;
-  const winner = 1 - client.playerIndex;
-  match.finished = true;
-  clearTimeout(match.tickTimer);
-  for (const timer of match.timers) clearInterval(timer);
-  matches.delete(match.id);
-  const opponent = match.players[winner];
+  const quitterIndex = client.playerIndex;
+  const winner = 1 - quitterIndex;
+  const disconnectedOpponent = match.disconnected.get(winner);
   const state = publicState(match);
-  for (const player of match.players) { player.match = null; player.playerIndex = null; }
-  send(opponent, { type: message, winner, state });
-  send(client, { type: 'match_over', winner, state, reason: 'forfeit' });
+  finishMatch(match, winner, { forfeitIndex: quitterIndex, reason: 'forfeit' });
+  if (disconnectedOpponent) {
+    rememberExpiredSession(disconnectedOpponent.playerId, {
+      type: 'match_expired', winner: quitterIndex, playerIndex: winner, state, reason: 'opponent_left',
+      players: match.players.map(player => ({ name: player.name }))
+    });
+  }
+}
+
+function pauseMatchForDisconnect(client) {
+  const match = client.match;
+  if (!match || match.finished || client.playerIndex === null) return;
+  const index = client.playerIndex;
+  client.connected = false;
+  if (!match.paused) {
+    match.paused = true;
+    match.pausedAt = Date.now();
+    clearTimeout(match.tickTimer);
+    match.tickTimer = null;
+    stopCountdown(match);
+  }
+  match.disconnected.set(index, client);
+  suspendedPlayers.set(client.playerId, { match, client, index });
+  client.reconnectTimer = setTimeout(() => expireDisconnectedPlayer(match, index, client), RECONNECT_GRACE_MS);
+  const opponent = match.players[1 - index];
+  send(opponent, {
+    type: 'opponent_disconnected', phase: match.phase,
+    reconnectInSeconds: Math.ceil(RECONNECT_GRACE_MS / 1000), state: publicState(match)
+  });
+}
+
+function resumeDisconnectedPlayer(client) {
+  const suspended = suspendedPlayers.get(client.playerId);
+  if (!suspended) return false;
+  const { match, client: previousClient, index } = suspended;
+  if (match.finished || match.disconnected.get(index) !== previousClient) {
+    suspendedPlayers.delete(client.playerId);
+    return false;
+  }
+
+  clearTimeout(previousClient.reconnectTimer);
+  suspendedPlayers.delete(client.playerId);
+  match.disconnected.delete(index);
+  client.name = previousClient.name;
+  client.match = match;
+  client.playerIndex = index;
+  client.connected = true;
+  match.players[index] = client;
+  previousClient.match = null;
+  previousClient.playerIndex = null;
+
+  if (match.disconnected.size === 0 && match.paused) {
+    const now = Date.now();
+    if (match.pausedAt !== null) match.pausedDurationMs += now - match.pausedAt;
+    match.pausedAt = null;
+    match.paused = false;
+    if (match.phase === 'playing') {
+      match.snakes.forEach(snake => { snake.lastMovedAt = now; });
+      scheduleNextTick(match);
+    } else {
+      runCountdown(match);
+    }
+  }
+
+  const state = publicState(match);
+  const players = match.players.map(player => ({ name: player.name }));
+  send(client, {
+    type: 'match_resumed', matchId: match.id, playerIndex: index, players,
+    phase: match.phase, paused: match.paused, countdownSeconds: match.countdownSeconds, state
+  });
+  send(match.players[1 - index], {
+    type: 'opponent_reconnected', phase: match.phase,
+    paused: match.paused, countdownSeconds: match.countdownSeconds, state
+  });
+  return true;
+}
+
+function resumeActivePlayer(client) {
+  const previousClient = [...clients].find(item => item !== client && item.playerId === client.playerId && item.match && !item.match.finished);
+  if (!previousClient) return false;
+  const match = previousClient.match;
+  const index = previousClient.playerIndex;
+  if (!match.paused) {
+    match.paused = true;
+    match.pausedAt = Date.now();
+    clearTimeout(match.tickTimer);
+    match.tickTimer = null;
+    stopCountdown(match);
+  }
+  previousClient.connected = false;
+  clients.delete(previousClient);
+  match.disconnected.set(index, previousClient);
+  suspendedPlayers.set(client.playerId, { match, client: previousClient, index });
+  previousClient.ws.close(4001, 'Player reconnected');
+  return resumeDisconnectedPlayer(client);
+}
+
+function expireDisconnectedPlayer(match, index, client) {
+  if (match.finished || match.disconnected.get(index) !== client) return;
+  const otherIndex = 1 - index;
+  const state = publicState(match);
+  if (match.disconnected.has(otherIndex)) {
+    const disconnectedPlayers = [...match.disconnected.entries()];
+    finishMatch(match, null);
+    for (const [playerIndex, player] of disconnectedPlayers) {
+      rememberExpiredSession(player.playerId, {
+        type: 'match_expired', winner: null, playerIndex, state, reason: 'both_disconnected',
+        players: match.players.map(item => ({ name: item.name }))
+      });
+    }
+    return;
+  }
+  finishMatch(match, otherIndex, { forfeitIndex: index, reason: 'reconnect_timeout' });
+  rememberExpiredSession(client.playerId, {
+    type: 'match_expired', winner: otherIndex, playerIndex: index, state, reason: 'reconnect_timeout',
+    players: match.players.map(player => ({ name: player.name }))
+  });
 }
 
 function handleMessage(client, payload) {
@@ -275,6 +438,18 @@ function handleMessage(client, payload) {
     client.playerId = cleanPlayerId(message.playerId);
     client.name = cleanName(message.name);
     send(client, { type: 'welcome', playerId: client.playerId, name: client.name });
+    if (resumeDisconnectedPlayer(client) || (message.resumeMatch && resumeActivePlayer(client))) return;
+    const expired = expiredSessions.get(client.playerId);
+    if (expired && expired.expiresAt > Date.now()) {
+      clearTimeout(expired.timer);
+      expiredSessions.delete(client.playerId);
+      send(client, {
+        type: expired.type, winner: expired.winner, playerIndex: expired.playerIndex,
+        state: expired.state, reason: expired.reason, players: expired.players
+      });
+    } else if (message.resumeMatch) {
+      send(client, { type: 'resume_unavailable' });
+    }
   } else if (message.type === 'join_queue') {
     queueClient(client, message.name);
   } else if (message.type === 'cancel_queue') {
@@ -283,7 +458,7 @@ function handleMessage(client, payload) {
   } else if (message.type === 'turn') {
     const next = DIRECTIONS[message.direction];
     const snake = client.match?.snakes[client.playerIndex];
-    if (!next || !snake || client.match.finished || !client.match.startedAt) return;
+    if (!next || !snake || client.match.finished || client.match.paused || !client.match.startedAt) return;
     if (snake.turnLocked) return;
     if (next.x === snake.nextDirection.x && next.y === snake.nextDirection.y) return;
     if (next.x === -snake.nextDirection.x && next.y === -snake.nextDirection.y) return;
@@ -298,38 +473,42 @@ function handleMessage(client, payload) {
 }
 
 wss.on('connection', ws => {
-  const client = { ws, playerId: null, name: 'Guest', queued: false, match: null, playerIndex: null, alive: true };
+  const client = { ws, playerId: null, name: 'Guest', queued: false, match: null, playerIndex: null, alive: true, connected: true };
   clients.add(client);
   ws.on('pong', () => { client.alive = true; });
   ws.on('message', payload => handleMessage(client, payload));
   ws.on('error', error => console.warn('WebSocket error:', error.message));
   ws.on('close', () => {
     removeFromQueue(client);
-    leaveMatch(client);
+    if (!shuttingDown) pauseMatchForDisconnect(client);
     clients.delete(client);
   });
 });
 
+let shuttingDown = false;
 const heartbeat = setInterval(() => {
   for (const client of clients) {
     if (!client.alive) { client.ws.terminate(); continue; }
     client.alive = false;
     client.ws.ping();
   }
-}, 25000);
+}, CLIENT_HEARTBEAT_MS);
 
 server.listen(PORT, '0.0.0.0', () => console.log(`Snake Duel match server listening on ${PORT}`));
 
 function shutdown() {
+  shuttingDown = true;
   clearInterval(heartbeat);
   for (const match of matches.values()) {
     clearTimeout(match.tickTimer);
-    for (const timer of match.timers) clearInterval(timer);
+    stopCountdown(match);
+    clearMatchReconnects(match);
   }
+  for (const expired of expiredSessions.values()) clearTimeout(expired.timer);
+  expiredSessions.clear();
   wss.clients.forEach(client => client.close(1001, 'Server restarting'));
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 5000).unref();
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
-
