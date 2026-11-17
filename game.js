@@ -28,6 +28,9 @@
   let shouldConnect = true;
   let playerId = getPlayerId();
   let playerName = getPlayerName();
+  let profileId = getProfileId();
+  let activeMatchId = (() => { try { return sessionStorage.getItem('snakeDuelActiveMatchId') || ''; } catch { return ''; } })();
+  let matchHistory = loadMatchHistory();
   let playerIndex = 0;
   let phase = (() => { try { return sessionStorage.getItem('snakeDuelMatchActive') === '1' ? 'reconnecting' : 'idle'; } catch { return 'idle'; } })();
   let matchPaused = phase === 'reconnecting';
@@ -50,9 +53,69 @@
     } catch { return crypto.randomUUID(); }
   }
 
+  function getProfileId() {
+    try {
+      let id = localStorage.getItem('snakeDuelProfileId');
+      if (!id) { id = crypto.randomUUID(); localStorage.setItem('snakeDuelProfileId', id); }
+      return id;
+    } catch { return 'guest-profile'; }
+  }
+
   function getPlayerName() {
     const names = ['LimeFox','MintDash','QuickTail','NightOwl','GreenComet','SwiftSnake'];
-    return `${names[Math.floor(Math.random()*names.length)]}-${Math.floor(10+Math.random()*90)}`;
+    try {
+      let saved = localStorage.getItem('snakeDuelGuestName');
+      if (!saved) { saved = `${names[Math.floor(Math.random()*names.length)]}-${Math.floor(10+Math.random()*90)}`; localStorage.setItem('snakeDuelGuestName', saved); }
+      return saved.slice(0, 20);
+    } catch { return `${names[Math.floor(Math.random()*names.length)]}-${Math.floor(10+Math.random()*90)}`; }
+  }
+
+  function historyStorageKey() { return `snakeDuelHistory:${profileId}`; }
+
+  function loadMatchHistory() {
+    try { const saved = JSON.parse(localStorage.getItem(historyStorageKey()) || '[]'); return Array.isArray(saved) ? saved.slice(0,20) : []; }
+    catch { return []; }
+  }
+
+  function renderMatchHistory() {
+    const played = matchHistory.length;
+    const wins = matchHistory.filter(item => item.result === 'VICTORY').length;
+    document.querySelector('#recordHeading').textContent = playerName;
+    document.querySelector('#recordPlayed').textContent = String(played);
+    document.querySelector('#recordWins').textContent = String(wins);
+    document.querySelector('#recordWinRate').textContent = `${played ? Math.round(wins / played * 100) : 0}%`;
+    const list = document.querySelector('#matchHistoryList');
+    list.replaceChildren();
+    if (!played) { const empty = document.createElement('li'); empty.className = 'history-empty'; empty.textContent = 'Your completed free matches will appear here.'; list.append(empty); return; }
+    for (const item of matchHistory.slice(0,5)) {
+      const row = document.createElement('li'); row.className = 'history-row';
+      const badge = document.createElement('span'); badge.className = `history-result ${item.result.toLowerCase()}`; badge.textContent = item.result === 'VICTORY' ? 'W' : item.result === 'DEFEAT' ? 'L' : 'D';
+      const details = document.createElement('div'); details.className = 'history-details';
+      const opponent = document.createElement('strong'); opponent.textContent = item.opponent || 'Guest opponent';
+      const meta = document.createElement('small'); meta.textContent = `${new Date(item.endedAt).toLocaleDateString()} · ${formatDuration(item.duration)}`;
+      details.append(opponent,meta);
+      const score = document.createElement('b'); score.textContent = `${item.yourScore} : ${item.opponentScore}`;
+      row.append(badge,details,score); list.append(row);
+    }
+  }
+
+  function formatDuration(value) {
+    const total = Math.max(0, Number(value) || 0);
+    return `${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+  }
+
+  function recordMatchResult(result, reason = 'normal') {
+    const id = activeMatchId || crypto.randomUUID();
+    if (matchHistory.some(item => item.id === id)) return;
+    const scores = snapshot?.scores || [];
+    const duration = snapshot?.elapsedSeconds ?? elapsedSeconds;
+    const opponent = document.querySelector('#opponentName').textContent || 'Guest opponent';
+    matchHistory.unshift({ id, result, reason, yourScore:Number(scores[playerIndex] || 0), opponentScore:Number(scores[1-playerIndex] || 0), duration:Number(duration) || 0, opponent, endedAt:new Date().toISOString() });
+    matchHistory = matchHistory.slice(0,20);
+    try { localStorage.setItem(historyStorageKey(), JSON.stringify(matchHistory)); } catch {}
+    renderMatchHistory();
+    activeMatchId = '';
+    try { sessionStorage.removeItem('snakeDuelActiveMatchId'); } catch {}
   }
 
   function setConnection(kind, text) {
@@ -187,6 +250,8 @@
         break;
       case 'match_resumed': {
         setResumeFlag(true);
+        activeMatchId=message.matchId||activeMatchId;
+        try{if(activeMatchId)sessionStorage.setItem('snakeDuelActiveMatchId',activeMatchId);}catch{}
         const names = applyPlayerIdentity(message.players, message.playerIndex);
         snapshot = message.state;
         phase = message.phase;
@@ -225,6 +290,7 @@
         clearInterval(clockTimer); matchbar.classList.remove('is-live','is-countdown');
         document.querySelector('#modeLabel').textContent = 'DUEL COMPLETE';
         draw(); updateScores(); updateClock(); updateButtons();
+        recordMatchResult(message.winner===null?'DRAW':message.winner===playerIndex?'VICTORY':'DEFEAT',message.reason||'reconnect_timeout');
         if (message.winner === null) {
           showResultOverlay('MATCH ENDED','No winner.','Both players lost connection before either returned.','↻','Find a new duel','DRAW');
           setStatus('The reconnect window expired for both players.');
@@ -258,6 +324,8 @@
         break;
       case 'match_found':
         setResumeFlag(true);
+        activeMatchId=message.matchId||crypto.randomUUID();
+        try{sessionStorage.setItem('snakeDuelActiveMatchId',activeMatchId);}catch{}
         phase = 'countdown'; matchPaused = false;
         const { opponentName } = applyPlayerIdentity(message.players, message.playerIndex);
         setStatus(`Matched with ${opponentName}. Get ready!`);
@@ -324,7 +392,9 @@
         if (intentionallyLeaving) { intentionallyLeaving = false; break; }
         setResumeFlag(false);
         phase = 'finished'; matchPaused = false; snapshot = message.state || snapshot;
-        clearInterval(clockTimer); draw(); updateScores(); updateClock(); matchbar.classList.remove('is-live','is-countdown');
+        clearInterval(clockTimer); draw(); updateScores(); updateClock();
+        recordMatchResult(message.winner===null?'DRAW':message.winner===playerIndex?'VICTORY':'DEFEAT');
+        matchbar.classList.remove('is-live','is-countdown');
         document.querySelector('#modeLabel').textContent = 'DUEL COMPLETE';
         updateButtons();
         if (message.winner === null) {
@@ -343,6 +413,7 @@
         phase = 'finished'; matchPaused = false; snapshot = message.state || snapshot;
         clearInterval(clockTimer); matchbar.classList.remove('is-live','is-countdown');
         draw(); updateScores(); updateClock(); updateButtons();
+        recordMatchResult('VICTORY','opponent_left');
         showResultOverlay('OPPONENT LEFT','You win by forfeit.','Your opponent disconnected. Find another free duel.','✳','Play again','VICTORY');
         setStatus('Opponent disconnected. Victory awarded by forfeit.');
         document.querySelector('#modeLabel').textContent = 'DUEL COMPLETE';
@@ -528,7 +599,7 @@
   document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
   document.querySelector('#restartButton').addEventListener('click', () => {
     if (phase === 'queued') { send({type:'cancel_queue'}); return; }
-    if (phase === 'playing' || phase === 'countdown') { setResumeFlag(false); intentionallyLeaving=true; send({type:'leave_match'}); phase='idle'; snapshot=null; clearInterval(clockTimer); }
+    if (phase === 'playing' || phase === 'countdown') { recordMatchResult('DEFEAT','left_match'); setResumeFlag(false); intentionallyLeaving=true; send({type:'leave_match'}); phase='idle'; snapshot=null; clearInterval(clockTimer); }
     showOverlay('FREE MATCHMAKING','Find your opponent.','Join the queue and get matched with another player online.');
     matchbar.classList.remove('is-live','is-countdown');
     document.querySelector('#modeLabel').textContent='FREE DUEL · IDLE';
@@ -545,5 +616,6 @@
   window.addEventListener('beforeunload',()=>{shouldConnect=false;socket?.close();});
   setInterval(()=>send({type:'ping'}),20000);
   if (phase === 'reconnecting') showOverlay('RECONNECTING','Restoring your match…','The match is paused while we reconnect you.','◷','Reconnecting…');
+  renderMatchHistory();
   draw(); updateButtons(); updateFullscreenButton(); connect();
 })();
