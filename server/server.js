@@ -109,7 +109,11 @@ function removeFromQueue(client) {
 function findPair() {
   for (let left = 0; left < waiting.length; left++) {
     for (let right = left + 1; right < waiting.length; right++) {
-      if (waiting[left].playerId !== waiting[right].playerId) return [left, right];
+      const first = waiting[left];
+      const second = waiting[right];
+      if (first.playerId === second.playerId) continue;
+      if (first.accountId && first.accountId === second.accountId) continue;
+      return [left, right];
     }
   }
   return null;
