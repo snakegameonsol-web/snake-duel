@@ -154,3 +154,14 @@
   .board-wrap::after{inset:10px}
 }
 
+/* End-of-match score summary */
+.match-result{width:100%;margin:0 auto 16px;padding:11px;border:1px solid #38483c;border-radius:10px;background:#0d1510;box-sizing:border-box}
+.match-result[hidden]{display:none!important}
+.result-outcome{margin-bottom:9px;color:var(--lime);font:700 9px var(--mono);letter-spacing:.16em}
+.match-result[data-result="DEFEAT"] .result-outcome{color:#ff8c86}
+.match-result[data-result="DRAW"] .result-outcome{color:#f0cf77}
+.result-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}
+.result-stats>div{display:grid;gap:5px;padding:7px 4px;border-radius:7px;background:#ffffff06}
+.result-stats span{color:#839086;font-size:8px;white-space:nowrap}
+.result-stats strong{color:#f2f6eb;font:700 13px var(--mono)}
+@media(max-width:560px){.match-result{margin-bottom:13px;padding:9px}.result-stats span{font-size:7px}.result-stats strong{font-size:12px}}
