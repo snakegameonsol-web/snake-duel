@@ -11,6 +11,8 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+  <script src="supabase-config.js" defer></script>
   <script src="game.js" defer></script>
 </head>
 <body>
@@ -50,7 +52,7 @@
           </article>
 
           <article class="rules-card" id="how-to-play"><div class="rules-head"><p class="eyebrow">THE RULES</p><span>01 — 03</span></div><h3>Simple to learn.<br><em>Hard to outlast.</em></h3><ul><li><span>01</span><p>Collect the shared fruit to grow.</p></li><li><span>02</span><p>Grow to speed up; your pace rises with your snake.</p></li><li><span>03</span><p>Walls and either snake's body mean out. Last one wins.</p></li></ul></article>
-          <article class="record-card" aria-labelledby="recordHeading"><div class="record-heading"><div><p class="eyebrow">YOUR FREE-PLAY PROFILE</p><h3 id="recordHeading">Guest player</h3></div><span class="record-local-tag">THIS BROWSER</span></div><div class="record-stats"><div><strong id="recordPlayed">0</strong><span>Matches</span></div><div><strong id="recordWins">0</strong><span>Wins</span></div><div><strong id="recordWinRate">0%</strong><span>Win rate</span></div></div><div class="history-heading"><strong>Recent matches</strong><span>LAST 5</span></div><ul class="match-history" id="matchHistoryList"><li class="history-empty">Your completed free matches will appear here.</li></ul></article>
+          <article class="record-card" aria-labelledby="recordHeading"><div class="record-heading"><div><p class="eyebrow">PLAYER PROFILE</p><h3 id="recordHeading">Guest player</h3></div><span class="record-local-tag" id="recordStorageLabel">THIS BROWSER</span></div><div class="account-panel"><p id="accountStatus" role="status">Guest mode: progress is saved in this browser.</p><button id="accountToggle" class="account-toggle" type="button">Sign in or create an account</button><form id="accountForm" class="account-form" hidden><label for="accountEmail">Email address</label><input id="accountEmail" type="email" autocomplete="email" required><label for="accountPassword">Password</label><input id="accountPassword" type="password" minlength="8" autocomplete="current-password" required><p id="accountMessage" role="status"></p><button id="authSubmit" class="account-submit" type="submit">Sign in</button><button id="authModeToggle" class="account-mode" type="button">Create an account</button><button id="signOutButton" class="account-mode" type="button" hidden>Sign out</button></form></div><div class="record-stats"><div><strong id="recordPlayed">0</strong><span>Matches</span></div><div><strong id="recordWins">0</strong><span>Wins</span></div><div><strong id="recordWinRate">0%</strong><span>Win rate</span></div></div><div class="history-heading"><strong>Recent matches</strong><span>LAST 5</span></div><ul class="match-history" id="matchHistoryList"><li class="history-empty">Your completed free matches will appear here.</li></ul></article>
           <div class="safety-note"><span>✳</span><p>Free matches only. No deposits or cash prizes.</p></div>
         </aside>
       </section>
