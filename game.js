@@ -71,8 +71,24 @@
     document.querySelector('#overlayEyebrow').textContent = kicker;
     document.querySelector('#overlayTitle').textContent = title;
     document.querySelector('#overlayCopy').textContent = copy;
+    document.querySelector('#matchResult').hidden = true;
     startButton.innerHTML = `${buttonText} <span>→</span>`;
     overlay.classList.remove('hidden');
+  }
+
+  function showResultOverlay(kicker, title, copy, symbol, buttonText, outcome) {
+    showOverlay(kicker, title, copy, symbol, buttonText);
+    const scores = snapshot?.scores || [];
+    const duration = snapshot?.elapsedSeconds ?? elapsedSeconds;
+    const minutes = Math.floor(duration / 60);
+    const seconds = duration % 60;
+    const result = document.querySelector('#matchResult');
+    document.querySelector('#resultOutcome').textContent = outcome;
+    result.dataset.result = outcome;
+    document.querySelector('#resultYourScore').textContent = String(scores[playerIndex] ?? 0).padStart(2,'0');
+    document.querySelector('#resultOpponentScore').textContent = String(scores[1-playerIndex] ?? 0).padStart(2,'0');
+    document.querySelector('#resultDuration').textContent = `${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;
+    result.hidden = false;
   }
 
   function send(data) {
@@ -210,13 +226,13 @@
         document.querySelector('#modeLabel').textContent = 'DUEL COMPLETE';
         draw(); updateScores(); updateClock(); updateButtons();
         if (message.winner === null) {
-          showOverlay('MATCH ENDED','No winner.','Both players lost connection before either returned.','↻','Find a new duel');
+          showResultOverlay('MATCH ENDED','No winner.','Both players lost connection before either returned.','↻','Find a new duel','DRAW');
           setStatus('The reconnect window expired for both players.');
         } else if (message.winner === playerIndex) {
-          showOverlay('YOU WIN BY FORFEIT','Your opponent did not reconnect.','The 15-second reconnect window expired.','✳','Find a new duel');
+          showResultOverlay('YOU WIN BY FORFEIT','Your opponent did not reconnect.','The 15-second reconnect window expired.','✳','Find a new duel','VICTORY');
           setStatus('Your opponent did not reconnect in time.');
         } else {
-          showOverlay('MATCH ENDED','Reconnect window expired.','The match ended while you were disconnected.','↻','Find a new duel');
+          showResultOverlay('MATCH ENDED','Reconnect window expired.','The match ended while you were disconnected.','↻','Find a new duel','DEFEAT');
           setStatus('Your reconnect window expired.');
         }
         break;
@@ -308,17 +324,17 @@
         if (intentionallyLeaving) { intentionallyLeaving = false; break; }
         setResumeFlag(false);
         phase = 'finished'; matchPaused = false; snapshot = message.state || snapshot;
-        clearInterval(clockTimer); draw(); updateScores(); matchbar.classList.remove('is-live','is-countdown');
+        clearInterval(clockTimer); draw(); updateScores(); updateClock(); matchbar.classList.remove('is-live','is-countdown');
         document.querySelector('#modeLabel').textContent = 'DUEL COMPLETE';
         updateButtons();
         if (message.winner === null) {
-          showOverlay('DRAW','Both snakes are out.','That was close. Queue up for another free duel.','↻','Play again');
+          showResultOverlay('DRAW','Both snakes are out.','That was close. Queue up for another free duel.','↻','Play again','DRAW');
           setStatus('Draw match. Both snakes crashed in the same tick.');
         } else if (message.winner === playerIndex) {
-          showOverlay('YOU WIN','Last snake standing.','Nice run. Find another opponent for a rematch.','✳','Play again');
+          showResultOverlay('YOU WIN','Last snake standing.','Nice run. Find another opponent for a rematch.','✳','Play again','VICTORY');
           setStatus('Victory. Your opponent is out.');
         } else {
-          showOverlay('MATCH OVER','Your opponent wins.','Queue again when you are ready for another duel.','↻','Play again');
+          showResultOverlay('MATCH OVER','Your opponent wins.','Queue again when you are ready for another duel.','↻','Play again','DEFEAT');
           setStatus('Defeat. Find another opponent for a rematch.');
         }
         break;
@@ -327,7 +343,7 @@
         phase = 'finished'; matchPaused = false; snapshot = message.state || snapshot;
         clearInterval(clockTimer); matchbar.classList.remove('is-live','is-countdown');
         draw(); updateScores(); updateClock(); updateButtons();
-        showOverlay('OPPONENT LEFT','You win by forfeit.','Your opponent disconnected. Find another free duel.','✳','Play again');
+        showResultOverlay('OPPONENT LEFT','You win by forfeit.','Your opponent disconnected. Find another free duel.','✳','Play again','VICTORY');
         setStatus('Opponent disconnected. Victory awarded by forfeit.');
         document.querySelector('#modeLabel').textContent = 'DUEL COMPLETE';
         break;
