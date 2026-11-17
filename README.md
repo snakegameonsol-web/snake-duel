@@ -7,7 +7,7 @@ A free, real-time, head-to-head Snake prototype. This version has no deposits, p
 - Responsive browser game and matchmaking lobby.
 - Guest players join one free queue; two different guest IDs are paired.
 - Synchronized three-second start and server-authoritative movement, food, collisions, scores, and winner.
-- WebSocket heartbeat, queue cancellation, disconnect-forfeit handling, and same-tick draw handling.
+- WebSocket heartbeat, queue cancellation, a 15-second reconnect grace period, and same-tick draw handling.
 - Render blueprint for the match server.
 
 ## Match rules in this prototype
@@ -17,7 +17,8 @@ A free, real-time, head-to-head Snake prototype. This version has no deposits, p
 - A wall, your own body, or the opponent's body is fatal.
 - If both snakes crash on the same tick, the match is a draw.
 - If a player disconnects or leaves during a match, the other player wins by forfeit.
-- The first two different guest IDs in the queue are matched. Guest identity is per browser tab and is not account authentication.
+- The first two different guest IDs in the queue are matched. Matchmaking identity is per browser tab and is not account authentication.
+- A guest profile keeps the name and recent free-match history in this browser using local storage. It does not sync between devices or browsers.
 
 ## Deploy the match server on Render
 
@@ -33,5 +34,4 @@ The Render service also exposes `/health` for a basic health check. Only the Git
 
 Start the server from `server/` with Node.js 20 or later: `npm install`, then `npm start`. Set `window.SNAKE_DUEL_SERVER_URL` in `config.js` to `ws://localhost:10000/ws`, and serve the static files from a local web server. The browser client defaults to that address on localhost.
 
-The game is intentionally an early free-play MVP. Before cash matches, add authenticated accounts, persistent match records, abuse controls, and review the legal and payment requirements for each market.
-
+The game is intentionally an early free-play MVP. Before cash matches, add authenticated accounts, server-side persistent match records, abuse controls, and review the legal and payment requirements for each market.
