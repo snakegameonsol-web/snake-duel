@@ -165,3 +165,11 @@
 .result-stats span{color:#839086;font-size:8px;white-space:nowrap}
 .result-stats strong{color:#f2f6eb;font:700 13px var(--mono)}
 @media(max-width:560px){.match-result{margin-bottom:13px;padding:9px}.result-stats span{font-size:7px}.result-stats strong{font-size:12px}}
+
+/* Browser-local free-play profile and recent match history */
+.record-card{padding:18px;border:1px solid var(--line);border-radius:15px;background:#101712}
+.record-heading{display:flex;justify-content:space-between;align-items:center;gap:8px}.record-heading .eyebrow{margin:0 0 6px;color:#92a094;font-size:8px}.record-heading h3{margin:0;color:#edf3e9;font-size:16px;letter-spacing:-.03em}.record-local-tag{padding:5px 7px;border:1px solid #344137;border-radius:6px;color:#849286;font:7px var(--mono);letter-spacing:.08em;white-space:nowrap}
+.record-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:15px 0}.record-stats>div{display:grid;gap:4px;padding:9px 7px;border-radius:8px;background:#ffffff06}.record-stats strong{color:var(--lime);font:700 16px var(--mono)}.record-stats span{color:#8b988e;font-size:8px}
+.history-heading{display:flex;justify-content:space-between;align-items:center;padding:10px 0 6px;border-top:1px solid #ffffff10}.history-heading strong{font-size:10px}.history-heading>span{color:#758177;font:7px var(--mono);letter-spacing:.1em}.match-history{display:grid;gap:5px;list-style:none;padding:0;margin:0}
+.history-row{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #ffffff08}.history-result{width:20px;height:20px;display:grid;place-items:center;border-radius:6px;background:#c6fa7217;color:var(--lime);font:700 9px var(--mono)}.history-result.defeat{background:#ff8c8617;color:#ff8c86}.history-result.draw{background:#e7c66a18;color:#e7c66a}.history-details{display:grid;gap:3px;min-width:0}.history-details strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:600}.history-details small{color:#78857b;font-size:7px}.history-row>b{color:#cbd5ca;font:10px var(--mono)}.history-empty{padding:8px 2px;color:#7e8b81;font-size:9px;line-height:1.5}
+@media(max-width:850px){.record-card{grid-column:1/-1}}@media(max-width:560px){.record-card{padding:15px}.record-stats{margin:12px 0}.history-row{padding:7px 2px}}
