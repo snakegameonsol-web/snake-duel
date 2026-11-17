@@ -34,7 +34,7 @@
           <div class="matchbar"><div class="match-label"><span class="live-dot"></span><span id="modeLabel">FREE DUEL · IDLE</span></div><span class="fullscreen-hint">On desktop, use Full screen to keep the board in view.</span><div class="match-meta"><span id="matchClock">00:00</span><span class="meta-divider"></span><span id="matchPace" aria-label="Player speeds">SPEED 1.0× · 1.0×</span><button id="fullscreenBtn" class="fullscreen-button" type="button" aria-label="Enter full screen" title="Enter full screen"><span id="fullscreenIcon" aria-hidden="true">⛶</span><span id="fullscreenLabel">Full screen</span></button></div></div>
           <div class="board-wrap">
             <canvas id="game" width="600" height="600" aria-label="Live Snake duel board"></canvas>
-            <div class="board-overlay" id="overlay"><div class="overlay-card"><div class="overlay-symbol" id="overlaySymbol">⚔</div><p class="eyebrow" id="overlayEyebrow">FREE MATCHMAKING</p><h2 id="overlayTitle">Find your opponent.</h2><p id="overlayCopy">Join the queue and get matched with another player online.</p><button class="primary-button" id="startButton">Find a free duel <span>→</span></button></div></div>
+            <div class="board-overlay" id="overlay"><div class="overlay-card"><div class="overlay-symbol" id="overlaySymbol">⚔</div><p class="eyebrow" id="overlayEyebrow">FREE MATCHMAKING</p><h2 id="overlayTitle">Find your opponent.</h2><p id="overlayCopy">Join the queue and get matched with another player online.</p><div class="match-result" id="matchResult" hidden aria-live="polite"><div class="result-outcome" id="resultOutcome"></div><div class="result-stats"><div><span>Your score</span><strong id="resultYourScore">00</strong></div><div><span>Opponent</span><strong id="resultOpponentScore">00</strong></div><div><span>Duration</span><strong id="resultDuration">00:00</strong></div></div></div><button class="primary-button" id="startButton">Find a free duel <span>→</span></button></div></div>
           </div>
           <div class="touch-controls" aria-label="Touch controls"><button data-dir="up">↑</button><div><button data-dir="left">←</button><button data-dir="down">↓</button><button data-dir="right">→</button></div></div>
         </div>
@@ -58,4 +58,3 @@
   </div>
 </body>
 </html>
-
